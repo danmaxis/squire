@@ -243,7 +243,11 @@ class Orchestrator:
                 f"(tentativa {task.homologation_attempt}/{task.max_homologation_attempts})"
             )
 
-            # Rate limit
+            if self.dry_run:
+                log("[dry-run] Simulando homologação", "warn")
+                return True
+
+            # Rate limit (só no modo real)
             self.rate_limiter.wait_if_needed()
             if not self.rate_limiter.can_call():
                 log("Rate limit atingido, aguardando...", "warn")
@@ -251,10 +255,6 @@ class Orchestrator:
 
             self.rate_limiter.record_call()
             self.stats.daily_claude_code_calls += 1
-
-            if self.dry_run:
-                log("[dry-run] Simulando homologação", "warn")
-                return True
 
             result = self.homologator.review(
                 task=task,
