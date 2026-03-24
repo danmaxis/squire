@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s --max-time 5 http://192.168.50.24:4000/v1/models -H \"Authorization: Bearer sk-local\")",
+      "Bash(python3 -m json.tool)",
+      "Bash(pip show:*)",
+      "Bash(python3 -c \"import pydantic; print\\(pydantic.__version__\\)\")",
+      "Bash(python3 -c \"import httpx; print\\(''httpx ok''\\)\")",
+      "Bash(pip install:*)",
+      "Bash(python3 -m pip install -e \"/home/ai-debian/orchestrator[dev]\" -q)",
+      "Bash(uv pip:*)",
+      "Bash(mkdir -p /mnt/user/data/orchestrator/projects/orchestrator-dashboard)",
+      "Bash(ORCH_STATE_ROOT=/home/ai-debian/orchestrator-state)",
+      "Bash(mkdir -p $ORCH_STATE_ROOT/projects/orchestrator-dashboard)",
+      "Bash(echo \"Usando $ORCH_STATE_ROOT\")"
+    ]
+  }
+}

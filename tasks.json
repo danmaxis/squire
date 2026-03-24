@@ -1,0 +1,276 @@
+{
+  "tasks": [
+    {
+      "id": "task-001",
+      "title": "Scaffold Next.js project",
+      "description": "Criar projeto Next.js com App Router, TypeScript, Tailwind CSS. Configurar tsconfig, tailwind.config, e estrutura de diretórios conforme CLAUDE.md (src/app, src/components, src/lib, src/hooks). Incluir .gitignore e README básico do dashboard.",
+      "status": "pending",
+      "assigned_to": "local_llm",
+      "attempts": 0,
+      "max_attempts": 10,
+      "homologation_result": null,
+      "homologation_attempt": 0,
+      "max_homologation_attempts": 3,
+      "completed_at": null,
+      "claude_code_assisted": false,
+      "subtasks": [
+        {
+          "id": "task-001-a",
+          "title": "npx create-next-app com TypeScript + Tailwind + App Router",
+          "status": "pending"
+        },
+        {
+          "id": "task-001-b",
+          "title": "Ajustar estrutura de diretórios (src/components, src/lib, src/hooks)",
+          "status": "pending"
+        },
+        {
+          "id": "task-001-c",
+          "title": "Configurar path aliases no tsconfig (@/components, @/lib, etc.)",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "task-002",
+      "title": "Definir tipos TypeScript espelhando models.py",
+      "description": "Criar src/lib/types.ts com interfaces TypeScript que espelham os schemas Pydantic do orquestrador: Project, Task, Subtask, HistoryEvent, CommitSummary, Alert, GlobalStats, Checkpoint. Os tipos devem ser compatíveis com os JSONs gerados pelo Python — mesmos nomes de campo, mesmos enums (como strings). Incluir também os enums como union types (ProjectStatus, TaskStatus, EventType, AlertSeverity, Actor).",
+      "status": "pending",
+      "assigned_to": "local_llm",
+      "attempts": 0,
+      "max_attempts": 10,
+      "homologation_result": null,
+      "homologation_attempt": 0,
+      "max_homologation_attempts": 3,
+      "completed_at": null,
+      "claude_code_assisted": false,
+      "subtasks": []
+    },
+    {
+      "id": "task-003",
+      "title": "Camada de dados — funções para ler JSONs",
+      "description": "Criar src/lib/data.ts com funções server-side que leem os JSONs do filesystem. O path base vem da env var ORCHESTRATOR_DATA_PATH. Funções: getProjects() → lista de Project, getProject(id) → Project, getTasks(id) → Task[], getHistory(id) → HistoryEvent[], getCommits(id) → CommitSummary[], getAlerts() → Alert[], getGlobalStats() → GlobalStats. Cada função deve tratar gracefully o caso de arquivo não existir (retornar array vazio ou objeto com defaults). Usar fs/promises com try/catch.",
+      "status": "pending",
+      "assigned_to": "local_llm",
+      "attempts": 0,
+      "max_attempts": 10,
+      "homologation_result": null,
+      "homologation_attempt": 0,
+      "max_homologation_attempts": 3,
+      "completed_at": null,
+      "claude_code_assisted": false,
+      "subtasks": [
+        {
+          "id": "task-003-a",
+          "title": "Funções de leitura com fs/promises e tratamento de erro",
+          "status": "pending"
+        },
+        {
+          "id": "task-003-b",
+          "title": "Função getProjects que lista diretórios em projects/ e lê cada project.json",
+          "status": "pending"
+        },
+        {
+          "id": "task-003-c",
+          "title": "Dados de exemplo (fixture JSONs) para desenvolvimento local",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "task-004",
+      "title": "Layout base com sidebar e área principal",
+      "description": "Criar o layout raiz (src/app/layout.tsx) com: sidebar à esquerda contendo logo/título 'Orchestrator' e lista de projetos navegável; área principal à direita que renderiza a rota ativa. Usar Tailwind para layout responsivo. A sidebar deve mostrar cada projeto como item clicável com StatusBadge ao lado do nome. Mobile: sidebar vira menu hamburger.",
+      "status": "pending",
+      "assigned_to": "local_llm",
+      "attempts": 0,
+      "max_attempts": 10,
+      "homologation_result": null,
+      "homologation_attempt": 0,
+      "max_homologation_attempts": 3,
+      "completed_at": null,
+      "claude_code_assisted": false,
+      "subtasks": [
+        {
+          "id": "task-004-a",
+          "title": "Layout com sidebar fixa e main area",
+          "status": "pending"
+        },
+        {
+          "id": "task-004-b",
+          "title": "Componente StatusBadge com cores por status",
+          "status": "pending"
+        },
+        {
+          "id": "task-004-c",
+          "title": "Navegação entre projetos via sidebar links",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "task-005",
+      "title": "Componente ProjectCard e página principal",
+      "description": "Criar src/components/ProjectCard.tsx: card com nome do projeto, descrição truncada, StatusBadge, barra de progresso (tasks completas / total), e timestamp de última atualização. Criar a página principal (src/app/page.tsx) que lista todos os ProjectCards em grid, precedidos pelo AlertBanner (task-007) e GlobalStats (task-006). Se não houver projetos, exibir empty state amigável.",
+      "status": "pending",
+      "assigned_to": "local_llm",
+      "attempts": 0,
+      "max_attempts": 10,
+      "homologation_result": null,
+      "homologation_attempt": 0,
+      "max_homologation_attempts": 3,
+      "completed_at": null,
+      "claude_code_assisted": false,
+      "subtasks": [
+        {
+          "id": "task-005-a",
+          "title": "ProjectCard com badge, progresso, timestamp",
+          "status": "pending"
+        },
+        {
+          "id": "task-005-b",
+          "title": "Página principal com grid de cards",
+          "status": "pending"
+        },
+        {
+          "id": "task-005-c",
+          "title": "Empty state quando não há projetos",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "task-006",
+      "title": "Componente GlobalStats — métricas no topo",
+      "description": "Criar src/components/GlobalStats.tsx: linha de cards no topo da página principal mostrando: total de projetos ativos, tasks completas hoje, chamadas LLM local vs Claude Code (com proporção), taxa de aprovação na 1ª homologação (%). Ler dados de global-stats.json. Cada métrica é um card compacto com ícone, valor grande, e label pequena. Se stats não existir, mostrar zeros.",
+      "status": "pending",
+      "assigned_to": "local_llm",
+      "attempts": 0,
+      "max_attempts": 10,
+      "homologation_result": null,
+      "homologation_attempt": 0,
+      "max_homologation_attempts": 3,
+      "completed_at": null,
+      "claude_code_assisted": false,
+      "subtasks": []
+    },
+    {
+      "id": "task-007",
+      "title": "Componente AlertBanner — alertas de intervenção",
+      "description": "Criar src/components/AlertBanner.tsx: banner fixo no topo (antes dos stats e cards) que aparece quando existem alertas não-acknowledged em alerts.json. Severidade critical: fundo vermelho, ícone de atenção. Severidade warning: fundo amarelo. Cada alerta mostra: projeto, task, mensagem, e timestamp. Se não houver alertas, o componente não renderiza nada (não ocupa espaço).",
+      "status": "pending",
+      "assigned_to": "local_llm",
+      "attempts": 0,
+      "max_attempts": 10,
+      "homologation_result": null,
+      "homologation_attempt": 0,
+      "max_homologation_attempts": 3,
+      "completed_at": null,
+      "claude_code_assisted": false,
+      "subtasks": []
+    },
+    {
+      "id": "task-008",
+      "title": "Página de detalhe do projeto com TaskList e Timeline",
+      "description": "Criar src/app/project/[id]/page.tsx: página de detalhe acessada ao clicar num ProjectCard. Layout: cabeçalho com nome, status, e descrição do projeto; abaixo, duas colunas (ou tabs em mobile): TaskList à esquerda e Timeline à direita. TaskList (src/components/TaskList.tsx): lista de tasks com status, tentativas, resultado da homologação, e subtasks expandíveis. Timeline (src/components/Timeline.tsx): lista cronológica reversa de eventos do history.json com ícones diferenciados por EventType e cores por Actor.",
+      "status": "pending",
+      "assigned_to": "local_llm",
+      "attempts": 0,
+      "max_attempts": 10,
+      "homologation_result": null,
+      "homologation_attempt": 0,
+      "max_homologation_attempts": 3,
+      "completed_at": null,
+      "claude_code_assisted": false,
+      "subtasks": [
+        {
+          "id": "task-008-a",
+          "title": "Página de detalhe com rota dinâmica [id]",
+          "status": "pending"
+        },
+        {
+          "id": "task-008-b",
+          "title": "Componente TaskList com status e subtasks expansíveis",
+          "status": "pending"
+        },
+        {
+          "id": "task-008-c",
+          "title": "Componente Timeline com ícones por tipo de evento",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "task-009",
+      "title": "Componente CommitLog — resumo de commits",
+      "description": "Criar src/components/CommitLog.tsx: seção na página de detalhe do projeto que mostra os últimos commits de commits.json. Cada commit exibe: SHA abreviado (7 chars), mensagem, timestamp relativo ('há 2 horas'), diff_summary (texto gerado pelo LLM descrevendo o que mudou), e lista de files_changed. Exibir no máximo 20 commits, com opção 'ver mais' se houver mais. Empty state se não houver commits.",
+      "status": "pending",
+      "assigned_to": "local_llm",
+      "attempts": 0,
+      "max_attempts": 10,
+      "homologation_result": null,
+      "homologation_attempt": 0,
+      "max_homologation_attempts": 3,
+      "completed_at": null,
+      "claude_code_assisted": false,
+      "subtasks": []
+    },
+    {
+      "id": "task-010",
+      "title": "Auto-refresh com polling hook",
+      "description": "Criar src/hooks/useAutoRefresh.ts: custom hook que faz polling a cada N ms (default 30000, configurável via NEXT_PUBLIC_REFRESH_INTERVAL). Usar com revalidação de dados do Next.js (router.refresh() ou revalidatePath). O refresh deve ser suave — sem flash de loading, atualizar os dados in-place. Incluir indicador visual sutil (ex: dot pulsante) mostrando que dados estão atualizados, e último timestamp de refresh. Se o fetch falhar, manter dados anteriores e mostrar indicador de erro discreto.",
+      "status": "pending",
+      "assigned_to": "local_llm",
+      "attempts": 0,
+      "max_attempts": 10,
+      "homologation_result": null,
+      "homologation_attempt": 0,
+      "max_homologation_attempts": 3,
+      "completed_at": null,
+      "claude_code_assisted": false,
+      "subtasks": [
+        {
+          "id": "task-010-a",
+          "title": "Hook useAutoRefresh com intervalo configurável",
+          "status": "pending"
+        },
+        {
+          "id": "task-010-b",
+          "title": "Indicador visual de status do refresh",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "task-011",
+      "title": "Containerização — Dockerfile e docker-compose",
+      "description": "Criar Dockerfile multi-stage (builder + runner) otimizado para Next.js standalone output. Criar docker-compose.yml para produção com: volume read-only montando os JSONs do orquestrador, porta 3100:3000, env vars configuráveis, healthcheck, e restart policy. O Dockerfile deve usar node:20-alpine, copiar apenas o necessário (standalone + static + public), e rodar como non-root user. Incluir .dockerignore.",
+      "status": "pending",
+      "assigned_to": "local_llm",
+      "attempts": 0,
+      "max_attempts": 10,
+      "homologation_result": null,
+      "homologation_attempt": 0,
+      "max_homologation_attempts": 3,
+      "completed_at": null,
+      "claude_code_assisted": false,
+      "subtasks": [
+        {
+          "id": "task-011-a",
+          "title": "Dockerfile multi-stage com standalone output",
+          "status": "pending"
+        },
+        {
+          "id": "task-011-b",
+          "title": "docker-compose.yml com volumes e healthcheck",
+          "status": "pending"
+        },
+        {
+          "id": "task-011-c",
+          "title": ".dockerignore adequado",
+          "status": "pending"
+        }
+      ]
+    }
+  ]
+}
