@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  orchestrator-dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: orchestrator-dashboard
+    restart: unless-stopped
+    ports:
+      - "3100:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
+      # Aponta para o volume montado com os JSONs do orquestrador
+      - ORCHESTRATOR_DATA_PATH=/data
+      # Intervalo de polling em ms (default: 30000)
+      - NEXT_PUBLIC_REFRESH_INTERVAL=30000
+    volumes:
+      # Estado do orquestrador montado como read-only
+      - /mnt/user/data/orchestrator:/data:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
