@@ -351,6 +351,11 @@ class Orchestrator:
                 # ── Inner loop ──
                 inner_ok = self._run_inner_loop(task)
 
+                # Pausa entre inner loop e homologação — garante que o Qwen
+                # terminou de processar antes de iniciar o claude --print
+                import time as _time
+                _time.sleep(5)
+
                 if not inner_ok:
                     # Inner loop falhou completamente
                     task.status = TaskStatus.blocked
