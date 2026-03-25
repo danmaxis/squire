@@ -325,6 +325,7 @@ PYEOF
       "status": "pending",
       "max_attempts": 10,
       "max_homologation_attempts": 5,
+      "skip_homologation": false,
       "subtasks": []
     }
   ]

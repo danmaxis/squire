@@ -351,28 +351,26 @@ class AiderBackend(CodingBackend):
         return BackendResult(files_touched=files_touched, raw_output=raw_output)
 
     def _git_diff_files(self, project_path: Path) -> list[str]:
-        """Lista arquivos modificados/criados desde o último commit via git diff."""
+        """Lista arquivos modificados/criados desde o último commit via git diff.
+
+        Cobre três casos:
+        - working-tree vs HEAD (modificados mas não staged)
+        - staged vs HEAD (git add feito mas não commitado)
+        - untracked (arquivos novos não adicionados ao git)
+        """
+        files: list[str] = []
         try:
-            proc = subprocess.run(
-                ["git", "diff", "--name-only", "HEAD"],
-                cwd=str(project_path),
-                capture_output=True,
-                text=True,
-                timeout=15,
-            )
-            files = [f.strip() for f in proc.stdout.splitlines() if f.strip()]
-
-            # Inclui também arquivos novos (untracked que o aider criou)
-            proc2 = subprocess.run(
-                ["git", "ls-files", "--others", "--exclude-standard"],
-                cwd=str(project_path),
-                capture_output=True,
-                text=True,
-                timeout=15,
-            )
-            new_files = [f.strip() for f in proc2.stdout.splitlines() if f.strip()]
-
-            return list(dict.fromkeys(files + new_files))  # preserva ordem, deduplica
+            for cmd in (
+                ["git", "diff", "--name-only", "HEAD"],           # working-tree
+                ["git", "diff", "--name-only", "--cached", "HEAD"],  # staged
+                ["git", "ls-files", "--others", "--exclude-standard"],  # untracked
+            ):
+                proc = subprocess.run(
+                    cmd, cwd=str(project_path),
+                    capture_output=True, text=True, timeout=15,
+                )
+                files.extend(f.strip() for f in proc.stdout.splitlines() if f.strip())
+            return list(dict.fromkeys(files))  # preserva ordem, deduplica
         except Exception:
             return []
 

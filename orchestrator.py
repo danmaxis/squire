@@ -347,6 +347,16 @@ class Orchestrator:
 
             log(f"Rodada {rodada}/{total} — homologação: [{task.id}] {task.title}")
 
+            # Auto-aprovação para tasks marcadas como skip_homologation
+            if task.skip_homologation:
+                log(f"[AUTO-APPROVED] skip_homologation=True", "ok")
+                self._record_event(
+                    EventType.homologation_approved, task.id, rodada,
+                    "Auto-aprovado: skip_homologation=True", Actor.orchestrator,
+                )
+                task.homologation_result = "approved"
+                return True
+
             if self.dry_run:
                 log("[dry-run] Simulando homologação", "warn")
                 return True

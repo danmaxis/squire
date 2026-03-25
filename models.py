@@ -107,6 +107,9 @@ class Task(BaseModel):
     rejection_summaries: list[str] = []
     # Contador de ciclos consecutivos sem nenhum arquivo modificado
     no_progress_streak: int = 0
+    # Se True, pula homologação pelo Claude Code (auto-aprovado após inner loop)
+    # Útil para tasks de setup/boilerplate que não precisam de review
+    skip_homologation: bool = False
 
 
 class TaskList(BaseModel):

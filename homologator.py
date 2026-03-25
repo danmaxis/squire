@@ -161,9 +161,15 @@ Responda APENAS com JSON válido, sem markdown:
     def _read_files_for_review(self, files_touched: list[str]) -> str:
         """Lê o conteúdo dos arquivos modificados para incluir no prompt."""
         if not files_touched:
+            # Fallback 1: detectar mudanças via git (staged + working-tree + untracked)
+            files_touched = self._git_fallback_files()
+        if not files_touched:
+            # Fallback 2: arquivos de código mais recentes do repo (últimos 5 por mtime)
+            files_touched = self._recent_code_files()
+        if not files_touched:
             return "\n\nNenhum arquivo foi modificado/criado nesta tentativa."
 
-        parts = ["\n\nArquivos modificados:"]
+        parts = ["\n\nArquivos modificados/detectados no repositório:"]
         for rel_path in files_touched:
             full_path = self.project_path / rel_path
             try:
@@ -176,6 +182,38 @@ Responda APENAS com JSON válido, sem markdown:
                 parts.append(f"\n### {rel_path}\n(erro ao ler: {e})")
 
         return "\n".join(parts)
+
+    def _git_fallback_files(self) -> list[str]:
+        """Detecta arquivos modificados via git quando files_touched não foi populado."""
+        import subprocess
+        try:
+            files: list[str] = []
+            for cmd in (
+                ["git", "diff", "--name-only", "HEAD"],
+                ["git", "diff", "--name-only", "--cached", "HEAD"],
+                ["git", "ls-files", "--others", "--exclude-standard"],
+            ):
+                p = subprocess.run(cmd, cwd=str(self.project_path),
+                                   capture_output=True, text=True, timeout=10)
+                files.extend(f.strip() for f in p.stdout.splitlines() if f.strip())
+            return list(dict.fromkeys(files))  # deduplica preservando ordem
+        except Exception:
+            return []
+
+    def _recent_code_files(self, max_files: int = 5) -> list[str]:
+        """Retorna os arquivos de código mais recentes do repo (por mtime)."""
+        extensions = {".py", ".ts", ".tsx", ".js", ".jsx", ".go", ".rs", ".java"}
+        try:
+            candidates = [
+                p for p in self.project_path.rglob("*")
+                if p.is_file() and p.suffix in extensions
+                and ".git" not in p.parts
+                and "node_modules" not in p.parts
+            ]
+            candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+            return [str(p.relative_to(self.project_path)) for p in candidates[:max_files]]
+        except Exception:
+            return []
 
     def _parse_response(self, stdout: str) -> HomologationResult:
         """Parseia a resposta do Claude Code."""
