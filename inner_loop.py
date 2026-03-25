@@ -192,13 +192,20 @@ class InnerLoop:
         current_content = []
 
         for line in llm_response.split("\n"):
-            if line.startswith("```filepath:"):
-                # Início de novo arquivo
-                if current_file:
-                    self._write_file(current_file, "\n".join(current_content))
-                    files_touched.append(current_file)
-                current_file = line.replace("```filepath:", "").strip()
-                current_content = []
+            if line.startswith("```") and not line.strip() == "```":
+                fence_id = line[3:].strip()  # ex: "filepath:src/foo.ts" ou "typescript:src/foo.ts"
+                detected_path = self._extract_filepath(fence_id)
+
+                if detected_path:
+                    # Início de novo arquivo
+                    if current_file:
+                        self._write_file(current_file, "\n".join(current_content))
+                        files_touched.append(current_file)
+                    current_file = detected_path
+                    current_content = []
+                elif current_file:
+                    # Fence de abertura sem path enquanto estamos dentro de um bloco — tratar como conteúdo
+                    current_content.append(line)
             elif line.strip() == "```" and current_file:
                 # Fim do bloco
                 self._write_file(current_file, "\n".join(current_content))
@@ -209,6 +216,30 @@ class InnerLoop:
                 current_content.append(line)
 
         return files_touched
+
+    def _extract_filepath(self, fence_id: str) -> str | None:
+        """
+        Extrai o caminho de arquivo de um identificador de fence markdown.
+
+        Aceita:
+        - ``filepath:src/foo.ts``  → "src/foo.ts"
+        - ``typescript:src/foo.ts``  → "src/foo.ts"  (linguagem:caminho)
+        - ``src/foo.ts``  → "src/foo.ts"  (caminho direto com extensão)
+        """
+        if not fence_id:
+            return None
+
+        # Formato "algo:caminho/com/extensao" — extrai a parte após o ":"
+        if ":" in fence_id:
+            after_colon = fence_id.split(":", 1)[1].strip()
+            if after_colon and ("/" in after_colon or "." in after_colon):
+                return after_colon
+
+        # Formato direto: parece um caminho (tem extensão ou barra)
+        if "/" in fence_id or (fence_id.count(".") >= 1 and not fence_id.startswith(".")):
+            return fence_id
+
+        return None
 
     def _write_file(self, relative_path: str, content: str) -> None:
         """Escreve arquivo no projeto, criando diretórios se necessário."""
