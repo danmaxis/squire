@@ -140,12 +140,12 @@ class Orchestrator:
 
     # ── Inner Loop (uma task) ──────────────────────────────────────
 
-    def _run_inner_loop(self, task) -> bool:
+    def _run_inner_loop(self, task, homologation_feedback: str = "") -> bool:
         """
         Executa o inner loop até os testes passarem ou esgotar tentativas.
         Retorna True se os testes passaram.
         """
-        extra_instructions = ""
+        extra_instructions = homologation_feedback
 
         while task.attempts < task.max_attempts:
             task.attempts += 1
@@ -296,7 +296,7 @@ class Orchestrator:
             if task.homologation_attempt < task.max_homologation_attempts:
                 log("Voltando ao inner loop com feedback da homologação...")
                 task.attempts = 0  # reset do inner loop
-                inner_ok = self._run_inner_loop(task)
+                inner_ok = self._run_inner_loop(task, homologation_feedback=result.feedback)
                 if not inner_ok:
                     # Inner loop falhou de novo — pular homologação
                     continue
