@@ -255,6 +255,60 @@ print(f"\n{count} task(s) desbloqueada(s).")
 PYEOF
 }
 
+cmd_reset() {
+    local project="${1:-}"; shift || true
+    if [[ -z "$project" ]]; then
+        error "Projeto obrigatório. Projetos disponíveis:"; list_projects; exit 1
+    fi
+
+    local proj_dir="$ORCH_STATE_ROOT/projects/$project"
+    local project_file="$proj_dir/project.json"
+    local tasks_file="$proj_dir/tasks.json"
+
+    [[ -f "$project_file" ]] || { error "project.json não encontrado para '$project'"; exit 1; }
+    [[ -f "$tasks_file" ]]   || { error "tasks.json não encontrado para '$project'"; exit 1; }
+
+    local repo_path
+    repo_path=$(python3 -c "import json; print(json.load(open('$project_file')).get('repo_path',''))" 2>/dev/null)
+
+    # Resetar tasks (todas ou apenas as especificadas por ID)
+    python3 - "$tasks_file" "$@" << 'PYEOF'
+import json, sys
+from pathlib import Path
+
+tasks_file = Path(sys.argv[1])
+target_ids = set(sys.argv[2:])  # IDs opcionais; vazio = todas as tasks
+
+data = json.loads(tasks_file.read_text())
+count = 0
+for t in data["tasks"]:
+    if target_ids and t["id"] not in target_ids:
+        continue
+    t["status"] = "pending"
+    t["attempts"] = 0
+    t["homologation_attempt"] = 0
+    t["homologation_result"] = None
+    t["rejection_summaries"] = []
+    t["no_progress_streak"] = 0
+    t["claude_code_assisted"] = False
+    count += 1
+    print(f"  ✓ {t['id']} → pending  ({t['title']})")
+
+tasks_file.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+print(f"\n{count} task(s) resetada(s).")
+PYEOF
+
+    # Limpar estado git do repo
+    if [[ -n "$repo_path" ]] && [[ -d "$repo_path/.git" ]]; then
+        warn "Limpando git state em $repo_path"
+        git -C "$repo_path" checkout -- . 2>/dev/null \
+            && ok "git checkout -- . OK" \
+            || warn "Nada para limpar no git (working tree já limpo)"
+    elif [[ -n "$repo_path" ]]; then
+        warn "repo_path '$repo_path' não é um repositório git — pulando limpeza"
+    fi
+}
+
 cmd_new() {
     local project="${1:-}"; shift || true
     if [[ -z "$project" ]] || [[ "$project" == --* ]]; then
@@ -364,6 +418,7 @@ cmd_help() {
     echo -e "  ${CYAN}orch kill${RESET}                Encerra sessão ativa e remove lock"
     echo -e "  ${CYAN}orch unlock${RESET}              Remove lock residual (sem matar processo)"
     echo -e "  ${CYAN}orch unblock${RESET} <projeto> [id...]  Reseta tasks bloqueadas para pending"
+    echo -e "  ${CYAN}orch reset${RESET}   <projeto> [id...]  Reseta tasks (qualquer status) + git checkout -- ."
     echo -e "  ${CYAN}orch projects${RESET}            Lista projetos disponíveis"
     echo -e "  ${CYAN}orch new${RESET} <projeto>              Cria projeto novo"
     echo -e "  ${CYAN}orch new${RESET} <projeto> --repo <path> --name <nome> --stack <csv> --backend <aider|litellm>"
@@ -392,6 +447,7 @@ case "$CMD" in
     kill)     cmd_kill ;;
     unlock)   cmd_unlock ;;
     unblock)  cmd_unblock "$@" ;;
+    reset)    cmd_reset "$@" ;;
     projects) cmd_projects ;;
     new)      cmd_new "$@" ;;
     help|-h|--help) cmd_help ;;

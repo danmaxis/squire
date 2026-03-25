@@ -99,6 +99,39 @@ class Orchestrator:
     def _stop_heartbeat(self):
         self._heartbeat_stop.set()
 
+    # ── Limpeza de estado git pré-task ────────────────────────────
+
+    def _cleanup_git_state(self) -> None:
+        """
+        Garante que o working tree do projeto está limpo antes de rodar o aider.
+        Se houver arquivos sujos (modified, staged, deleted), executa git checkout -- .
+        para restaurar o estado do último commit.
+        """
+        import subprocess
+        repo = self.project.repo_path
+        try:
+            status = subprocess.run(
+                ["git", "status", "--short"],
+                cwd=repo, capture_output=True, text=True, timeout=10,
+            )
+            if status.returncode != 0:
+                log(f"git status falhou em {repo} — pulando limpeza", "warn")
+                return
+            dirty = status.stdout.strip()
+            if not dirty:
+                return  # working tree limpo, nada a fazer
+            log(f"Git state sujo detectado ({len(dirty.splitlines())} arquivo(s)) — limpando", "warn")
+            cleanup = subprocess.run(
+                ["git", "checkout", "--", "."],
+                cwd=repo, capture_output=True, text=True, timeout=10,
+            )
+            if cleanup.returncode == 0:
+                log("Working tree restaurado para HEAD", "ok")
+            else:
+                log(f"Falha ao limpar git: {cleanup.stderr[:100]}", "warn")
+        except Exception as e:
+            log(f"Erro ao verificar git state: {e}", "warn")
+
     # ── Buscar próxima task ────────────────────────────────────────
 
     def _find_current_task(self):
@@ -499,6 +532,9 @@ class Orchestrator:
                     EventType.task_started, task.id,
                     summary=task.title,
                 )
+
+                # Garantir working tree limpo antes do aider
+                self._cleanup_git_state()
 
                 # ── Ciclo de rodadas: inner loop + homologação ──
                 homolog_ok = self._run_homologation(task)
