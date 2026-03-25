@@ -247,6 +247,15 @@ class InnerLoop:
         full_path.parent.mkdir(parents=True, exist_ok=True)
         full_path.write_text(content, encoding="utf-8")
 
+    def _has_npm_test_script(self) -> bool:
+        """Verifica se package.json tem script 'test' definido."""
+        import json as _json
+        try:
+            pkg = _json.loads((self.project_path / "package.json").read_text())
+            return "test" in pkg.get("scripts", {})
+        except Exception:
+            return False
+
     def _run_tests(self) -> dict:
         """
         Roda testes do projeto. Detecta o runner baseado nos arquivos presentes.
@@ -256,8 +265,13 @@ class InnerLoop:
         result = {"success": False, "passing": 0, "failing": 0, "output": "", "lint_clean": True}
 
         # Detectar test runner
-        if (self.project_path / "package.json").exists():
+        if (self.project_path / "package.json").exists() and self._has_npm_test_script():
             cmd = ["npm", "test", "--", "--watchAll=false", "--passWithNoTests"]
+        elif (self.project_path / "package.json").exists() and not self._has_npm_test_script():
+            # package.json existe mas sem script de test — sem testes ainda
+            result["success"] = True
+            result["output"] = "No test script in package.json, skipping."
+            return result
         elif (self.project_path / "pyproject.toml").exists():
             cmd = ["python", "-m", "pytest", "--tb=short", "-q"]
         elif (self.project_path / "go.mod").exists():
