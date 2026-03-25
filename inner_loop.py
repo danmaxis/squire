@@ -88,7 +88,7 @@ class InnerLoop:
         context = LLMContextSummary(
             last_instruction=prompt[:500],  # truncar pra checkpoint
             files_touched=files_touched,
-            last_error=test_result["error"] if not test_result["success"] else None,
+            last_error=test_result.get("error") if not test_result["success"] else None,
             tests_passing=test_result["passing"],
             tests_failing=test_result["failing"],
             test_summary=test_result["output"][:300],
