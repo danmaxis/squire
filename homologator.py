@@ -78,6 +78,13 @@ class Homologator:
                           f"{result.stderr[:500]}",
                 )
 
+            if not result.stdout.strip():
+                # stdout vazio com returncode 0 — stderr pode ter info
+                stderr_hint = result.stderr[:200] if result.stderr else "sem stderr"
+                return HomologationResult(
+                    error=f"Claude Code retornou stdout vazio (stderr: {stderr_hint})",
+                )
+
             return self._parse_response(result.stdout)
 
         except subprocess.TimeoutExpired:
@@ -96,12 +103,8 @@ class Homologator:
         attempt: int,
     ) -> str:
         """Monta o prompt de homologação para o Claude Code."""
-        files_section = ""
-        if context.files_touched:
-            files_section = (
-                "\n\nArquivos modificados nesta task:\n"
-                + "\n".join(f"- {f}" for f in context.files_touched)
-            )
+        # Incluir conteúdo dos arquivos tocados (máx 200 linhas por arquivo)
+        files_section = self._read_files_for_review(context.files_touched)
 
         previous_section = ""
         if attempt > 1:
@@ -122,7 +125,7 @@ Testes: {context.tests_passing} passando, {context.tests_failing} falhando
 {previous_section}
 
 ## O que avaliar
-1. O código resolve o que a task pede?
+1. O código resolve o que a task pede? (verifique se os arquivos EXIGIDOS pela descrição foram criados)
 2. Há edge cases não cobertos pelos testes?
 3. O código é legível e segue boas práticas?
 4. Tem problemas de segurança ou performance óbvios?
@@ -134,6 +137,25 @@ Responda APENAS com JSON válido, sem markdown:
   "feedback": "Explicação da decisão",
   "suggestions": ["melhoria 1", "melhoria 2"]
 }}"""
+
+    def _read_files_for_review(self, files_touched: list[str]) -> str:
+        """Lê o conteúdo dos arquivos modificados para incluir no prompt."""
+        if not files_touched:
+            return "\n\nNenhum arquivo foi modificado/criado nesta tentativa."
+
+        parts = ["\n\nArquivos modificados:"]
+        for rel_path in files_touched:
+            full_path = self.project_path / rel_path
+            try:
+                lines = full_path.read_text(encoding="utf-8").splitlines()
+                content = "\n".join(lines[:200])
+                if len(lines) > 200:
+                    content += f"\n... (truncado — {len(lines)} linhas no total)"
+                parts.append(f"\n### {rel_path}\n```\n{content}\n```")
+            except Exception as e:
+                parts.append(f"\n### {rel_path}\n(erro ao ler: {e})")
+
+        return "\n".join(parts)
 
     def _parse_response(self, stdout: str) -> HomologationResult:
         """Parseia a resposta do Claude Code."""
