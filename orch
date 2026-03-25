@@ -255,6 +255,94 @@ print(f"\n{count} task(s) desbloqueada(s).")
 PYEOF
 }
 
+cmd_new() {
+    local project="${1:-}"; shift || true
+    if [[ -z "$project" ]] || [[ "$project" == --* ]]; then
+        error "Uso: orch new <project-id> [--repo <path>] [--name <nome>] [--stack <csv>] [--backend aider|litellm]"
+        exit 1
+    fi
+
+    local repo_path="" name="" stack="typescript" backend="aider"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --repo)    repo_path="$2"; shift 2 ;;
+            --name)    name="$2";      shift 2 ;;
+            --stack)   stack="$2";     shift 2 ;;
+            --backend) backend="$2";   shift 2 ;;
+            *) error "Opção desconhecida: $1"; exit 1 ;;
+        esac
+    done
+
+    # Defaults
+    [[ -z "$name" ]]      && name="$project"
+    [[ -z "$repo_path" ]] && repo_path="/home/ai-debian/projects/$project"
+
+    local proj_dir="$ORCH_STATE_ROOT/projects/$project"
+    if [[ -d "$proj_dir" ]]; then
+        error "Projeto '$project' já existe em $proj_dir"
+        exit 1
+    fi
+
+    mkdir -p "$proj_dir"
+
+    # Converter stack CSV em array JSON
+    local stack_json
+    stack_json=$(python3 -c "
+import json, sys
+items = [s.strip() for s in sys.argv[1].split(',') if s.strip()]
+print(json.dumps(items))
+" "$stack")
+
+    # project.json
+    python3 - "$proj_dir/project.json" "$project" "$name" "$repo_path" "$stack_json" "$backend" << 'PYEOF'
+import json, sys, datetime
+path, pid, name, repo, stack_json, backend = sys.argv[1:]
+now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+data = {
+    "id": pid,
+    "name": name,
+    "description": "",
+    "repo_path": repo,
+    "stack": json.loads(stack_json),
+    "status": "planning",
+    "created_at": now,
+    "updated_at": now,
+    "current_task_id": None,
+    "coding_backend": backend,
+}
+open(path, "w").write(json.dumps(data, ensure_ascii=False, indent=2))
+PYEOF
+
+    # tasks.json — template comentado
+    cat > "$proj_dir/tasks.json" << 'TASKEOF'
+{
+  "tasks": [
+    {
+      "id": "task-001",
+      "title": "Setup inicial",
+      "description": "Descreva aqui o que deve ser feito. Seja específico: quais arquivos criar, qual comportamento esperado, quais testes devem passar.",
+      "status": "pending",
+      "max_attempts": 10,
+      "max_homologation_attempts": 5,
+      "subtasks": []
+    }
+  ]
+}
+TASKEOF
+
+    local editor="${EDITOR:-nano}"
+    ok "Projeto '$project' criado em $proj_dir"
+    echo ""
+    echo -e "  ${BOLD}Próximos passos:${RESET}"
+    echo -e "  1. Edite as tasks:   ${CYAN}$editor $proj_dir/tasks.json${RESET}"
+    echo -e "  2. Crie o repo:      ${CYAN}mkdir -p $repo_path && cd $repo_path && git init${RESET}"
+    echo -e "  3. Execute:          ${CYAN}orch run $project${RESET}"
+    echo ""
+    echo -e "  Ajuste a descrição do projeto:"
+    echo -e "  ${CYAN}$editor $proj_dir/project.json${RESET}"
+}
+
 cmd_projects() {
     bold "Projetos disponíveis:"
     list_projects | sed 's/^/  /'
@@ -276,10 +364,13 @@ cmd_help() {
     echo -e "  ${CYAN}orch unlock${RESET}              Remove lock residual (sem matar processo)"
     echo -e "  ${CYAN}orch unblock${RESET} <projeto> [id...]  Reseta tasks bloqueadas para pending"
     echo -e "  ${CYAN}orch projects${RESET}            Lista projetos disponíveis"
+    echo -e "  ${CYAN}orch new${RESET} <projeto>              Cria projeto novo"
+    echo -e "  ${CYAN}orch new${RESET} <projeto> --repo <path> --name <nome> --stack <csv> --backend <aider|litellm>"
     echo ""
     echo -e "  Variável de ambiente: ${YELLOW}ORCH_STATE_ROOT${RESET} (padrão: $ORCH_STATE_ROOT)"
     echo ""
     echo -e "  Exemplos:"
+    echo -e "    orch new meu-app --repo /home/ai-debian/projects/meu-app --stack typescript,nextjs"
     echo -e "    orch run orchestrator-dashboard"
     echo -e "    orch bg  orchestrator-dashboard"
     echo -e "    orch log"
@@ -301,6 +392,7 @@ case "$CMD" in
     unlock)   cmd_unlock ;;
     unblock)  cmd_unblock "$@" ;;
     projects) cmd_projects ;;
+    new)      cmd_new "$@" ;;
     help|-h|--help) cmd_help ;;
     *)
         error "Comando desconhecido: '$CMD'"
