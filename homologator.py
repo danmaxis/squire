@@ -61,6 +61,7 @@ class Homologator:
         try:
             result = subprocess.run(
                 [
+                    "nice", "-n", "15",  # menor prioridade — evita saturar CPUs junto com o processo principal
                     self.claude_bin,
                     "--print",      # modo não-interativo
                     "--output-format", "json",
