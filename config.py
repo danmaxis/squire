@@ -38,7 +38,7 @@ LITELLM_API_KEY = os.getenv("ORCH_LITELLM_KEY", "masterofpuppets")
 
 # Limites do inner loop
 INNER_LOOP_MAX_ATTEMPTS = int(os.getenv("ORCH_INNER_MAX_ATTEMPTS", "10"))
-INNER_LOOP_TIMEOUT_SECONDS = int(os.getenv("ORCH_INNER_TIMEOUT", "300"))
+INNER_LOOP_TIMEOUT_SECONDS = int(os.getenv("ORCH_INNER_TIMEOUT", "600"))
 
 
 # ── Claude Code ────────────────────────────────────────────────────
