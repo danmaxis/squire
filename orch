@@ -244,6 +244,9 @@ for t in data["tasks"]:
         t["attempts"] = 0
         t["homologation_attempt"] = 0
         t.pop("homologation_result", None)
+        # Limpa histórico de loops para evitar que a detecção dispare imediatamente
+        t["rejection_summaries"] = []
+        t["no_progress_streak"] = 0
         count += 1
         print(f"  ✓ {t['id']} → pending  ({t['title']})")
 

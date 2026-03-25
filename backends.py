@@ -14,6 +14,7 @@ Backends disponíveis:
 from __future__ import annotations
 
 import fcntl
+import re
 import subprocess
 import time
 from abc import ABC, abstractmethod
@@ -23,6 +24,18 @@ from pathlib import Path
 import httpx
 
 import config
+
+# System prompt padrão para o LiteLLM — contexto de CI automatizado
+_DEFAULT_SYSTEM_PROMPT = (
+    "Você é um desenvolvedor experiente num loop de CI automatizado. "
+    "O código que você escrever será compilado e testado imediatamente. "
+    "Retorne arquivos completos usando o formato ```filepath:caminho/arquivo.ext "
+    "(sem texto fora dos blocos de código, sem TODOs, sem esqueletos). "
+    "Implemente funcionalidade completa e funcional."
+)
+
+# Delays para retry em falhas de rede (segundos)
+_HTTP_RETRY_DELAYS = [5, 10, 20]
 
 # ── LLM global lock ────────────────────────────────────────────────
 # Lock de arquivo para garantir que apenas um processo chama o llama.cpp
@@ -60,6 +73,7 @@ class BackendResult:
     files_touched: list[str] = field(default_factory=list)
     raw_output: str = ""          # stdout+stderr do processo/resposta
     error: str | None = None      # erro fatal (não de teste)
+    reasoning: str = ""           # chain-of-thought do modelo (se disponível)
 
 
 class CodingBackend(ABC):
@@ -99,10 +113,12 @@ class LiteLLMBackend(CodingBackend):
         base_url: str = config.LITELLM_BASE_URL,
         model: str = config.LITELLM_MODEL,
         api_key: str = config.LITELLM_API_KEY,
+        system_prompt: str = _DEFAULT_SYSTEM_PROMPT,
     ):
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.api_key = api_key
+        self.system_prompt = system_prompt
 
     def execute_instruction(
         self,
@@ -112,6 +128,35 @@ class LiteLLMBackend(CodingBackend):
     ) -> BackendResult:
         """Chama o LLM, parseia a resposta e escreve os arquivos."""
         with _LLMLock():
+            try:
+                data = self._call_api_with_retry(instruction, timeout)
+                message = data["choices"][0]["message"]
+                llm_text = message.get("content") or ""
+                # Qwen3 com --reasoning-budget retorna chain-of-thought separado
+                reasoning = message.get("reasoning_content") or ""
+            except Exception as e:
+                return BackendResult(error=f"LLM call failed: {e}")
+
+        files_touched = self._apply_changes(llm_text, project_path)
+        return BackendResult(
+            files_touched=files_touched,
+            raw_output=llm_text,
+            reasoning=reasoning,
+        )
+
+    def _call_api_with_retry(self, instruction: str, timeout: int) -> dict:
+        """
+        Chama a API com retry automático em falhas de rede/servidor.
+
+        Retry em: ConnectionError, RemoteProtocolError, HTTP 5xx.
+        Falha imediata em: HTTP 4xx, timeout do modelo.
+        """
+        last_exc: Exception | None = None
+        delays = [0] + _HTTP_RETRY_DELAYS
+
+        for attempt, delay in enumerate(delays):
+            if delay:
+                time.sleep(delay)
             client = httpx.Client(timeout=timeout)
             try:
                 response = client.post(
@@ -123,30 +168,26 @@ class LiteLLMBackend(CodingBackend):
                     json={
                         "model": self.model,
                         "messages": [
-                            {
-                                "role": "system",
-                                "content": (
-                                    "Você é um desenvolvedor experiente. "
-                                    "Implemente o que foi pedido de forma limpa e testável. "
-                                    "Retorne código completo dos arquivos, não patches parciais."
-                                ),
-                            },
+                            {"role": "system", "content": self.system_prompt},
                             {"role": "user", "content": instruction},
                         ],
                         "temperature": 0.3,
-                        "max_tokens": 8192,
+                        "max_tokens": 32768,
                     },
                 )
                 response.raise_for_status()
-                data = response.json()
-                llm_text = data["choices"][0]["message"]["content"]
-            except Exception as e:
-                return BackendResult(error=f"LLM call failed: {e}")
+                return response.json()
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code < 500:
+                    raise  # 4xx: problema no request, não retry
+                last_exc = e
+            except (httpx.ConnectError, httpx.RemoteProtocolError,
+                    httpx.ReadError, httpx.WriteError) as e:
+                last_exc = e
             finally:
                 client.close()
 
-        files_touched = self._apply_changes(llm_text, project_path)
-        return BackendResult(files_touched=files_touched, raw_output=llm_text)
+        raise RuntimeError(f"LLM API falhou após {len(_HTTP_RETRY_DELAYS)} retries: {last_exc}")
 
     def _apply_changes(self, llm_response: str, project_path: Path) -> list[str]:
         """
@@ -297,6 +338,15 @@ class AiderBackend(CodingBackend):
             except subprocess.TimeoutExpired:
                 return BackendResult(error=f"aider timed out ({timeout}s)")
 
+        sanitized = self._sanitize_workspace(project_path)
+        if sanitized:
+            # Logar artefatos removidos para diagnóstico
+            import sys
+            print(f"[sanitize] {len(sanitized)} artefato(s) do aider removidos/corrigidos",
+                  file=sys.stderr)
+            for item in sanitized[:5]:  # máx 5 no log para não poluir
+                print(f"  {item}", file=sys.stderr)
+
         files_touched = self._git_diff_files(project_path)
         return BackendResult(files_touched=files_touched, raw_output=raw_output)
 
@@ -325,6 +375,64 @@ class AiderBackend(CodingBackend):
             return list(dict.fromkeys(files + new_files))  # preserva ordem, deduplica
         except Exception:
             return []
+
+    def _sanitize_workspace(self, project_path: Path) -> list[str]:
+        """
+        Remove artefatos inválidos que o aider às vezes cria:
+
+        1. Arquivos com '(' ou ')' no nome — resultam de edições com
+           verbose mode ativo (ex: "route.ts (GET)", "route.ts (COPY)").
+
+        2. Arquivos de código que começam com ``` (fence markdown gravado
+           literalmente) — o aider às vezes confunde o conteúdo de resposta
+           do modelo com o arquivo propriamente dito.
+
+        Retorna lista de paths relativos removidos ou corrigidos.
+        """
+        affected: list[str] = []
+        git_dir = project_path / ".git"
+
+        # 1. Arquivos com parênteses no nome
+        for path in project_path.rglob("*"):
+            if path.is_file() and not path.is_relative_to(git_dir):
+                if "(" in path.name or ")" in path.name:
+                    try:
+                        rel = str(path.relative_to(project_path))
+                        path.unlink()
+                        affected.append(f"[removido] {rel}")
+                    except Exception:
+                        pass
+
+        # 2. Arquivos de código que começam com cerca markdown
+        _CODE_EXTENSIONS = {
+            ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
+            ".py", ".css", ".scss", ".json", ".yaml", ".yml",
+        }
+        for path in project_path.rglob("*"):
+            if not path.is_file() or path.is_relative_to(git_dir):
+                continue
+            if path.suffix not in _CODE_EXTENSIONS:
+                continue
+            try:
+                content = path.read_text(encoding="utf-8", errors="ignore")
+                if not content.lstrip().startswith("```"):
+                    continue
+                lines = content.split("\n")
+                # Remove linha de abertura da fence
+                if lines and lines[0].strip().startswith("```"):
+                    lines = lines[1:]
+                # Remove linha de fechamento da fence (última não-vazia)
+                while lines and not lines[-1].strip():
+                    lines.pop()
+                if lines and lines[-1].strip() == "```":
+                    lines.pop()
+                path.write_text("\n".join(lines), encoding="utf-8")
+                rel = str(path.relative_to(project_path))
+                affected.append(f"[fence removida] {rel}")
+            except Exception:
+                pass
+
+        return affected
 
 
 # ── OpenCode Backend ───────────────────────────────────────────────
@@ -395,6 +503,18 @@ class OpenCodeBackend(CodingBackend):
             return list(dict.fromkeys(files + new_files))
         except Exception:
             return []
+
+
+# ── Utilitários de parse ───────────────────────────────────────────
+
+def parse_and_apply_files(text: str, project_path: Path) -> list[str]:
+    """
+    Parseia output do LLM (formato ```filepath:caminho ```) e escreve os arquivos.
+
+    Função de módulo que delega ao parser do LiteLLMBackend.
+    Usada pelo TechnicalEscalation.implement_directly() e por outros callers.
+    """
+    return LiteLLMBackend()._apply_changes(text, project_path)
 
 
 # ── Factory ────────────────────────────────────────────────────────

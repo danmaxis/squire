@@ -252,6 +252,60 @@ class TechnicalEscalation:
             prefix = f"┊{arrow}" if i == 0 else "┊ "
             print(f"[{ts}]   {prefix} {line[:120]}")
 
+    def implement_directly(
+        self,
+        task: Task,
+        context: LLMContextSummary,
+        rejection_context: str = "",
+    ) -> list[str]:
+        """
+        Modo de emergência: quando o LLM local não consegue resolver após N rodadas,
+        pede ao Claude Code para implementar diretamente.
+
+        Retorna lista de arquivos escritos. Se falhar, retorna [].
+        """
+        from backends import parse_and_apply_files
+
+        rejection_section = (
+            f"\n\nHistórico de rejeições:\n{rejection_context}"
+            if rejection_context else ""
+        )
+
+        prompt = f"""O LLM local falhou em implementar esta task após múltiplas rodadas.
+Você precisa implementar diretamente.
+
+Task: {task.title}
+Descrição: {task.description}
+Projeto em: {self.project_path}
+Arquivos já existentes: {', '.join(context.files_touched) or 'nenhum'}
+Testes passando: {context.tests_passing}, falhando: {context.tests_failing}
+Último erro: {context.last_error or 'N/A'}
+{rejection_section}
+
+Implemente a task completa. Retorne os arquivos no formato:
+```filepath:caminho/relativo/arquivo.ts
+// conteúdo completo do arquivo
+```
+
+Cada arquivo deve ser completo e funcional. Não use TODOs nem esqueletos."""
+
+        self._vlog("→", prompt)
+        try:
+            result = subprocess.run(
+                [self.claude_bin, "--print", prompt],
+                cwd=str(self.project_path),
+                capture_output=True,
+                text=True,
+                timeout=300,  # 5 min — pode precisar escrever vários arquivos
+            )
+            if result.returncode != 0 or not result.stdout.strip():
+                return []
+            self._vlog("←", result.stdout)
+            files = parse_and_apply_files(result.stdout, self.project_path)
+            return files
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            return []
+
     def unblock(
         self,
         task: Task,

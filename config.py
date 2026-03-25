@@ -58,6 +58,12 @@ CLAUDE_CODE_WINDOW_MINUTES = int(os.getenv("ORCH_CC_WINDOW_MIN", "30"))
 # Rodadas máximas por task (cada rodada = inner loop até 10 + 1 homologação)
 MAX_HOMOLOGATION_ATTEMPTS = int(os.getenv("ORCH_MAX_HOMOLOG", "5"))
 
+# Quantas rejeições consecutivas com o mesmo padrão de erro disparam escalação imediata
+LOOP_DETECT_THRESHOLD = int(os.getenv("ORCH_LOOP_DETECT", "3"))
+
+# Quantos ciclos consecutivos sem nenhum arquivo modificado disparam escalação
+NO_PROGRESS_THRESHOLD = int(os.getenv("ORCH_NO_PROGRESS", "3"))
+
 
 # ── Session ────────────────────────────────────────────────────────
 

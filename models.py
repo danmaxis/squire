@@ -103,6 +103,10 @@ class Task(BaseModel):
     completed_at: Optional[datetime] = None
     claude_code_assisted: bool = False
     subtasks: list[Subtask] = []
+    # Histórico compacto de rejeições — usado para detectar loops repetitivos
+    rejection_summaries: list[str] = []
+    # Contador de ciclos consecutivos sem nenhum arquivo modificado
+    no_progress_streak: int = 0
 
 
 class TaskList(BaseModel):

@@ -172,12 +172,71 @@ class InnerLoop:
         except Exception:
             return False
 
+    def _run_syntax_check(self) -> dict | None:
+        """
+        Verifica sintaxe dos arquivos ANTES de rodar os testes.
+
+        - TypeScript: npx tsc --noEmit (se tsconfig.json existe)
+        - Python: python -m py_compile em todos os .py modificados
+
+        Retorna dict de falha (mesmo formato de _run_tests) se a sintaxe falhar,
+        ou None se tudo ok (ou se não houver checker disponível).
+        """
+        # TypeScript
+        if (self.project_path / "tsconfig.json").exists():
+            try:
+                proc = subprocess.run(
+                    ["npx", "--no", "tsc", "--noEmit"],
+                    cwd=str(self.project_path),
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                if proc.returncode != 0:
+                    output = (proc.stdout + proc.stderr)[:2000]
+                    return {
+                        "success": False, "passing": 0, "failing": 1,
+                        "output": f"[TypeScript] Erro de sintaxe:\n{output}",
+                        "lint_clean": False, "skipped": False,
+                    }
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                pass  # tsc não instalado — não penalizar
+
+        # Python
+        if (self.project_path / "pyproject.toml").exists() or list(self.project_path.glob("*.py")):
+            import ast
+            errors = []
+            for py_file in sorted(self.project_path.rglob("*.py")):
+                # Ignora .venv e __pycache__
+                parts = py_file.parts
+                if any(p in (".venv", "venv", "__pycache__", "node_modules") for p in parts):
+                    continue
+                try:
+                    source = py_file.read_text(encoding="utf-8", errors="ignore")
+                    ast.parse(source, filename=str(py_file))
+                except SyntaxError as e:
+                    rel = str(py_file.relative_to(self.project_path))
+                    errors.append(f"  {rel}:{e.lineno}: {e.msg}")
+            if errors:
+                return {
+                    "success": False, "passing": 0, "failing": len(errors),
+                    "output": f"[Python] Erro(s) de sintaxe:\n" + "\n".join(errors),
+                    "lint_clean": False, "skipped": False,
+                }
+
+        return None  # sintaxe ok
+
     def _run_tests(self) -> dict:
         """
         Roda testes do projeto. Detecta o runner baseado nos arquivos presentes.
 
         Retorna dict com: success, passing, failing, output, lint_clean
         """
+        # Verificação sintática rápida antes dos testes
+        syntax_error = self._run_syntax_check()
+        if syntax_error:
+            return syntax_error
+
         result = {"success": False, "passing": 0, "failing": 0, "output": "", "lint_clean": True, "skipped": False}
 
         # Detectar test runner

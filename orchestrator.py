@@ -141,6 +141,56 @@ class Orchestrator:
             actor=actor,
         ))
 
+    # ── Detecção de loop e sem progresso ───────────────────────────
+
+    def _is_looping(self, task) -> bool:
+        """
+        Detecta se o LLM está preso no mesmo padrão de erro há N rejeições consecutivas.
+
+        Compara as últimas LOOP_DETECT_THRESHOLD summaries de rejeição:
+        se 4+ palavras significativas aparecem em todas elas, é um loop.
+        """
+        threshold = config.LOOP_DETECT_THRESHOLD
+        if len(task.rejection_summaries) < threshold:
+            return False
+
+        stopwords = {
+            "o", "a", "e", "de", "da", "do", "que", "em", "um", "uma", "para",
+            "com", "não", "se", "por", "mas", "ou", "na", "no", "as", "os",
+            "é", "foi", "ser", "está", "tem", "há", "este", "esta", "isso",
+        }
+        last_n = task.rejection_summaries[-threshold:]
+        word_sets = [
+            set(s.lower().split()) - stopwords
+            for s in last_n
+        ]
+        if not word_sets:
+            return False
+        common = word_sets[0].copy()
+        for ws in word_sets[1:]:
+            common &= ws
+        # 4+ palavras significativas em comum indica loop
+        return len(common) >= 4
+
+    def _force_escalation(self, task, context_feedback: str) -> str:
+        """
+        Força escalação técnica imediata ao Claude Code.
+        Usado quando loop detectado ou sem progresso por N ciclos.
+        Retorna as instruções para o próximo inner loop.
+        """
+        if not self.rate_limiter.can_call():
+            log("Rate limit ativo — não é possível escalar agora", "warn")
+            return context_feedback
+
+        log("Loop detectado — escalação forçada ao Claude Code", "warn")
+        self.rate_limiter.record_call()
+        self.stats.daily_claude_code_calls += 1
+        extra = self.escalation.unblock(task, self.cp.llm_context)
+        task.claude_code_assisted = True
+        if extra:
+            log("Instruções de desbloqueio recebidas do Claude Code", "ok")
+        return extra or context_feedback
+
     # ── Inner Loop (uma task) ──────────────────────────────────────
 
     def _run_inner_loop(self, task, homologation_feedback: str = "") -> bool:
@@ -187,6 +237,21 @@ class Orchestrator:
                     f"Erro fatal: {result.error}", Actor.local_llm,
                 )
                 continue
+
+            # Detectar ciclos sem progresso (nenhum arquivo modificado)
+            if not result.files_touched:
+                task.no_progress_streak += 1
+                log(
+                    f"[WARN] Backend não modificou nenhum arquivo "
+                    f"({task.no_progress_streak}/{config.NO_PROGRESS_THRESHOLD} consecutivos)",
+                    "warn",
+                )
+                if task.no_progress_streak >= config.NO_PROGRESS_THRESHOLD:
+                    log("Sem progresso por N ciclos — forçando escalação", "warn")
+                    extra_instructions = self._force_escalation(task, extra_instructions)
+                    task.no_progress_streak = 0
+            else:
+                task.no_progress_streak = 0
 
             if result.success:
                 if result.tests_skipped:
@@ -327,6 +392,13 @@ class Orchestrator:
                 task.homologation_attempt,
                 result.feedback[:300], Actor.claude_code,
             )
+
+            # Registrar summary para detecção de loop
+            if result.summary:
+                task.rejection_summaries.append(result.summary)
+                # Manter apenas as últimas 10 para não inflar o checkpoint
+                task.rejection_summaries = task.rejection_summaries[-10:]
+
             # Monta contexto para a próxima rodada: fix_suggestion primeiro (mais acionável),
             # depois summary e feedback como contexto adicional
             parts = []
@@ -337,6 +409,39 @@ class Orchestrator:
             if result.feedback:
                 parts.append(f"## Detalhes\n{result.feedback}")
             last_feedback = "\n\n".join(parts) if parts else result.feedback
+
+            # Detectar loop repetitivo — escalar imediatamente se necessário
+            if self._is_looping(task):
+                log(
+                    f"Loop detectado: mesmo erro em "
+                    f"{config.LOOP_DETECT_THRESHOLD} rejeições consecutivas",
+                    "error",
+                )
+                last_feedback = self._force_escalation(task, last_feedback)
+
+            # Penúltima rodada com loop persistente: Claude Code implementa diretamente
+            is_penultimate = task.homologation_attempt >= task.max_homologation_attempts - 1
+            if is_penultimate and self._is_looping(task) and not self.dry_run:
+                log(
+                    "Penúltima rodada + loop persistente → "
+                    "Claude Code implementa diretamente", "warn"
+                )
+                if self.rate_limiter.can_call():
+                    self.rate_limiter.record_call()
+                    self.stats.daily_claude_code_calls += 1
+                    files_written = self.escalation.implement_directly(
+                        task, self.cp.llm_context,
+                        rejection_context="\n".join(task.rejection_summaries[-5:]),
+                    )
+                    if files_written:
+                        log(
+                            f"Claude Code escreveu {len(files_written)} arquivo(s) — "
+                            "avançando para última homologação", "ok"
+                        )
+                        task.claude_code_assisted = True
+                        # Atualiza contexto com os arquivos escritos pelo Claude Code
+                        self.cp.llm_context.files_touched = files_written
+                        last_feedback = ""  # Claude Code já implementou, não precisa de feedback
 
         # Esgotou todas as rodadas
         task.homologation_result = "rejected"
