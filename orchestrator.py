@@ -81,6 +81,9 @@ class Orchestrator:
 
         # Stats
         self.stats = ckpt.load_stats()
+        # Contadores desta sessão apenas (não persistidos no global-stats)
+        self.session_local_calls: int = 0
+        self.session_cc_calls: int = 0
 
         # Heartbeat thread
         self._heartbeat_stop = threading.Event()
@@ -218,6 +221,7 @@ class Orchestrator:
         log("Loop detectado — escalação forçada ao Claude Code", "warn")
         self.rate_limiter.record_call()
         self.stats.daily_claude_code_calls += 1
+        self.session_cc_calls += 1
         extra = self.escalation.unblock(task, self.cp.llm_context)
         task.claude_code_assisted = True
         if extra:
@@ -257,6 +261,7 @@ class Orchestrator:
 
             # Atualizar stats
             self.stats.daily_local_llm_calls += 1
+            self.session_local_calls += 1
             if self.project_id not in self.stats.projects_touched_today:
                 self.stats.projects_touched_today.append(self.project_id)
 
@@ -319,6 +324,7 @@ class Orchestrator:
                 if self.rate_limiter.can_call():
                     self.rate_limiter.record_call()
                     self.stats.daily_claude_code_calls += 1
+                    self.session_cc_calls += 1
                     extra_instructions = self.escalation.unblock(
                         task, self.cp.llm_context,
                     )
@@ -399,6 +405,7 @@ class Orchestrator:
 
             self.rate_limiter.record_call()
             self.stats.daily_claude_code_calls += 1
+            self.session_cc_calls += 1
 
             result = self.homologator.review(
                 task=task,
@@ -472,6 +479,7 @@ class Orchestrator:
                 if self.rate_limiter.can_call():
                     self.rate_limiter.record_call()
                     self.stats.daily_claude_code_calls += 1
+                    self.session_cc_calls += 1
                     files_written = self.escalation.implement_directly(
                         task, self.cp.llm_context,
                         rejection_context="\n".join(task.rejection_summaries[-5:]),
@@ -631,14 +639,14 @@ class Orchestrator:
         )
         total = len(self.task_list.tasks)
 
+        session_ratio = self.session_local_calls / max(1, self.session_cc_calls)
+        daily_ratio   = self.stats.daily_local_llm_calls / max(1, self.stats.daily_claude_code_calls)
+
         log(f"\n{'─'*50}")
         log(f"Resumo: {completed}/{total} tasks concluídas, {blocked} bloqueadas")
-        log(f"Chamadas LLM local: {self.stats.daily_local_llm_calls}")
-        log(f"Chamadas Claude Code: {self.stats.daily_claude_code_calls}")
-        ratio = (
-            self.stats.daily_local_llm_calls / max(1, self.stats.daily_claude_code_calls)
-        )
-        log(f"Proporção local/Claude: {ratio:.1f}:1 (meta: 30:1)")
+        log(f"  Esta sessão  →  LLM local: {self.session_local_calls}  |  Claude Code: {self.session_cc_calls}  |  proporção: {session_ratio:.1f}:1")
+        log(f"  Hoje (total) →  LLM local: {self.stats.daily_local_llm_calls}  |  Claude Code: {self.stats.daily_claude_code_calls}  |  proporção: {daily_ratio:.1f}:1")
+        log(f"  Meta: 30:1")
         log(f"{'─'*50}")
 
 
