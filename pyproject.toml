@@ -19,7 +19,7 @@ dev = [
 orchestrate = "orchestrator:main"
 
 [tool.setuptools]
-py-modules = ["orchestrator", "checkpoint", "config", "models", "inner_loop", "homologator", "rate_limiter"]
+py-modules = ["orchestrator", "checkpoint", "config", "models", "inner_loop", "backends", "homologator", "rate_limiter"]
 
 [tool.ruff]
 target-version = "py311"

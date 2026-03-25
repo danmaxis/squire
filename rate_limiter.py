@@ -8,7 +8,7 @@ Se exceder, retorna tempo de espera restante.
 from __future__ import annotations
 
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from models import RateLimitState
 import config
@@ -37,10 +37,10 @@ class RateLimiter:
         """Retorna quantos segundos faltam até a janela resetar. 0 se pode chamar."""
         if self.can_call():
             return 0
-        window_end = self.state.window_started_at + timedelta(
+        window_end = self._as_utc(self.state.window_started_at) + timedelta(
             minutes=self.state.window_duration_minutes
         )
-        remaining = (window_end - datetime.utcnow()).total_seconds()
+        remaining = (window_end - datetime.now(timezone.utc)).total_seconds()
         return max(0, int(remaining))
 
     def wait_if_needed(self) -> None:
@@ -51,11 +51,19 @@ class RateLimiter:
             time.sleep(wait)
             self._maybe_reset_window()
 
+    @staticmethod
+    def _as_utc(dt: datetime) -> datetime:
+        """Garante que um datetime é timezone-aware (UTC).
+        Datetimes naive carregados do JSON são tratados como UTC."""
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc)
+        return dt
+
     def _maybe_reset_window(self) -> None:
         """Reseta a janela se o tempo expirou."""
-        window_end = self.state.window_started_at + timedelta(
+        window_end = self._as_utc(self.state.window_started_at) + timedelta(
             minutes=self.state.window_duration_minutes
         )
-        if datetime.utcnow() >= window_end:
+        if datetime.now(timezone.utc) >= window_end:
             self.state.claude_code_calls_this_window = 0
-            self.state.window_started_at = datetime.utcnow()
+            self.state.window_started_at = datetime.now(timezone.utc)

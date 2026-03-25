@@ -2,26 +2,24 @@
 Inner loop — executa o ciclo de implementação com o LLM local.
 
 Responsabilidades:
-- Enviar instrução de codificação ao Qwen via LiteLLM
-- Aplicar as mudanças no filesystem do projeto
+- Montar instrução de codificação
+- Delegar execução ao backend (LiteLLM, Aider, OpenCode)
 - Rodar testes e lint
 - Reportar resultado para o orquestrador decidir próximo passo
 
 O design é agent-agnostic: a classe InnerLoopResult padroniza o output,
-e a implementação pode ser trocada (ex: de LiteLLM direto para OpenCode
-ou Aider-CE) sem mudar o orquestrador.
+e a implementação pode ser trocada via o parâmetro `backend` (string ou
+instância de CodingBackend).
 """
 
 from __future__ import annotations
 
-import json
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import httpx
-
 import config
+from backends import CodingBackend, create_backend
 from models import LLMContextSummary, Task
 
 
@@ -31,29 +29,41 @@ class InnerLoopResult:
     success: bool = False           # testes passaram?
     tests_passing: int = 0
     tests_failing: int = 0
+    tests_skipped: bool = False     # sem runner configurado no projeto
     test_output: str = ""           # stdout/stderr do test runner
     lint_clean: bool = False
     files_touched: list[str] = field(default_factory=list)
     error: str | None = None        # erro fatal (não de teste)
-    llm_response: str = ""          # resposta bruta do LLM (pra debug)
+    llm_response: str = ""          # output bruto do backend (pra debug)
     context_summary: LLMContextSummary | None = None
 
 
 class InnerLoop:
-    """Executa uma iteração de implementação usando o LLM local via LiteLLM."""
+    """Executa uma iteração de implementação usando o backend configurado."""
 
     def __init__(
         self,
         project_path: str,
-        base_url: str = config.LITELLM_BASE_URL,
-        model: str = config.LITELLM_MODEL,
-        api_key: str = config.LITELLM_API_KEY,
+        backend: str | CodingBackend = config.CODING_BACKEND,
+        verbose: bool = True,
     ):
         self.project_path = Path(project_path)
-        self.base_url = base_url.rstrip("/")
-        self.model = model
-        self.api_key = api_key
-        self.client = httpx.Client(timeout=config.INNER_LOOP_TIMEOUT_SECONDS)
+        self.verbose = verbose
+        if isinstance(backend, str):
+            self.backend = create_backend(backend)
+        else:
+            self.backend = backend
+
+    def _vlog(self, arrow: str, text: str, max_lines: int = 3) -> None:
+        """Imprime preview de até 3 linhas com prefixo visual ┊."""
+        if not self.verbose:
+            return
+        from datetime import datetime, timezone
+        ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+        lines = [l for l in text.splitlines() if l.strip()][:max_lines]
+        for i, line in enumerate(lines):
+            prefix = f"┊{arrow}" if i == 0 else "┊ "
+            print(f"[{ts}]   {prefix} {line[:120]}")
 
     def execute(
         self,
@@ -63,31 +73,30 @@ class InnerLoop:
     ) -> InnerLoopResult:
         """
         Uma iteração completa:
-        1. Monta prompt com contexto da task + erros anteriores
-        2. Chama o LLM local
-        3. Aplica mudanças (o LLM retorna patches/código)
-        4. Roda testes
-        5. Retorna resultado estruturado
+        1. Monta instrução com contexto da task + erros anteriores
+        2. Delega execução ao backend
+        3. Roda testes
+        4. Retorna resultado estruturado
         """
-        # 1. Montar prompt
-        prompt = self._build_prompt(task, previous_context, extra_instructions)
+        instruction = self._build_instruction(task, previous_context, extra_instructions)
+        self._vlog("→", instruction)
 
-        # 2. Chamar LLM local
-        try:
-            llm_response = self._call_llm(prompt)
-        except Exception as e:
-            return InnerLoopResult(error=f"LLM call failed: {e}")
+        backend_result = self.backend.execute_instruction(
+            instruction=instruction,
+            project_path=self.project_path,
+            timeout=config.INNER_LOOP_TIMEOUT_SECONDS,
+        )
 
-        # 3. Aplicar mudanças no projeto
-        files_touched = self._apply_changes(llm_response)
+        if backend_result.error:
+            return InnerLoopResult(error=backend_result.error)
 
-        # 4. Rodar testes
+        self._vlog("←", backend_result.raw_output)
+
         test_result = self._run_tests()
 
-        # 5. Montar resultado
         context = LLMContextSummary(
-            last_instruction=prompt[:500],  # truncar pra checkpoint
-            files_touched=files_touched,
+            last_instruction=instruction[:500],
+            files_touched=backend_result.files_touched,
             last_error=test_result.get("error") if not test_result["success"] else None,
             tests_passing=test_result["passing"],
             tests_failing=test_result["failing"],
@@ -98,20 +107,21 @@ class InnerLoop:
             success=test_result["success"],
             tests_passing=test_result["passing"],
             tests_failing=test_result["failing"],
+            tests_skipped=test_result.get("skipped", False),
             test_output=test_result["output"],
             lint_clean=test_result.get("lint_clean", True),
-            files_touched=files_touched,
-            llm_response=llm_response[:1000],
+            files_touched=backend_result.files_touched,
+            llm_response=backend_result.raw_output[:1000],
             context_summary=context,
         )
 
-    def _build_prompt(
+    def _build_instruction(
         self,
         task: Task,
         previous_context: LLMContextSummary | None,
         extra_instructions: str,
     ) -> str:
-        """Monta o prompt para o LLM local com contexto da task."""
+        """Monta o texto de instrução para o backend."""
         parts = [
             f"## Task: {task.title}",
             f"{task.description}",
@@ -139,123 +149,19 @@ class InnerLoop:
         if extra_instructions:
             parts.extend(["", "## Instruções adicionais", extra_instructions])
 
-        parts.extend([
-            "",
-            "## Formato de resposta",
-            "Retorne o código completo dos arquivos modificados,",
-            "cada um delimitado por ```filepath:caminho/do/arquivo```.",
-            "Depois explique brevemente o que mudou.",
-        ])
+        # A seção de formato só faz sentido para LiteLLM (que parseia output em texto)
+        # Aider/OpenCode não precisam dela, mas não prejudica incluir
+        from backends import LiteLLMBackend
+        if isinstance(self.backend, LiteLLMBackend):
+            parts.extend([
+                "",
+                "## Formato de resposta",
+                "Retorne o código completo dos arquivos modificados,",
+                "cada um delimitado por ```filepath:caminho/do/arquivo```.",
+                "Depois explique brevemente o que mudou.",
+            ])
 
         return "\n".join(parts)
-
-    def _call_llm(self, prompt: str) -> str:
-        """Chama o LLM local via endpoint OpenAI-compatible do LiteLLM."""
-        response = self.client.post(
-            f"{self.base_url}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": self.model,
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": (
-                            "Você é um desenvolvedor experiente. "
-                            "Implemente o que foi pedido de forma limpa e testável. "
-                            "Retorne código completo dos arquivos, não patches parciais."
-                        ),
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-                "temperature": 0.3,
-                "max_tokens": 8192,
-            },
-        )
-        response.raise_for_status()
-        data = response.json()
-        return data["choices"][0]["message"]["content"]
-
-    def _apply_changes(self, llm_response: str) -> list[str]:
-        """
-        Parseia a resposta do LLM e escreve os arquivos no projeto.
-
-        Espera blocos no formato:
-        ```filepath:src/components/Timeline.tsx
-        <conteúdo do arquivo>
-        ```
-        """
-        files_touched = []
-        current_file = None
-        current_content = []
-        pending_path = None  # caminho detectado na linha anterior ao fence
-
-        for line in llm_response.split("\n"):
-            stripped = line.strip()
-
-            if stripped.startswith("```") and stripped != "```":
-                fence_id = stripped[3:].strip()
-                detected_path = self._extract_filepath(fence_id) or pending_path
-
-                if detected_path:
-                    if current_file:
-                        self._write_file(current_file, "\n".join(current_content))
-                        files_touched.append(current_file)
-                    current_file = detected_path
-                    current_content = []
-                elif current_file:
-                    current_content.append(line)
-                pending_path = None
-
-            elif stripped == "```":
-                if current_file:
-                    self._write_file(current_file, "\n".join(current_content))
-                    files_touched.append(current_file)
-                    current_file = None
-                    current_content = []
-                pending_path = None
-
-            elif current_file:
-                current_content.append(line)
-                pending_path = None
-
-            else:
-                # Linha fora de bloco — pode ser um caminho de arquivo antes do fence
-                pending_path = self._extract_filepath(stripped) if stripped else None
-
-        return files_touched
-
-    def _extract_filepath(self, fence_id: str) -> str | None:
-        """
-        Extrai o caminho de arquivo de um identificador de fence markdown.
-
-        Aceita:
-        - ``filepath:src/foo.ts``  → "src/foo.ts"
-        - ``typescript:src/foo.ts``  → "src/foo.ts"  (linguagem:caminho)
-        - ``src/foo.ts``  → "src/foo.ts"  (caminho direto com extensão)
-        """
-        if not fence_id:
-            return None
-
-        # Formato "algo:caminho/com/extensao" — extrai a parte após o ":"
-        if ":" in fence_id:
-            after_colon = fence_id.split(":", 1)[1].strip()
-            if after_colon and ("/" in after_colon or "." in after_colon):
-                return after_colon
-
-        # Formato direto: parece um caminho (tem extensão ou barra)
-        if "/" in fence_id or (fence_id.count(".") >= 1 and not fence_id.startswith(".")):
-            return fence_id
-
-        return None
-
-    def _write_file(self, relative_path: str, content: str) -> None:
-        """Escreve arquivo no projeto, criando diretórios se necessário."""
-        full_path = self.project_path / relative_path
-        full_path.parent.mkdir(parents=True, exist_ok=True)
-        full_path.write_text(content, encoding="utf-8")
 
     def _has_npm_test_script(self) -> bool:
         """Verifica se package.json tem script 'test' definido."""
@@ -272,14 +178,14 @@ class InnerLoop:
 
         Retorna dict com: success, passing, failing, output, lint_clean
         """
-        result = {"success": False, "passing": 0, "failing": 0, "output": "", "lint_clean": True}
+        result = {"success": False, "passing": 0, "failing": 0, "output": "", "lint_clean": True, "skipped": False}
 
         # Detectar test runner
         if (self.project_path / "package.json").exists() and self._has_npm_test_script():
             cmd = ["npm", "test", "--", "--watchAll=false", "--passWithNoTests"]
         elif (self.project_path / "package.json").exists() and not self._has_npm_test_script():
-            # package.json existe mas sem script de test — sem testes ainda
             result["success"] = True
+            result["skipped"] = True
             result["output"] = "No test script in package.json, skipping."
             return result
         elif (self.project_path / "pyproject.toml").exists():
@@ -287,8 +193,8 @@ class InnerLoop:
         elif (self.project_path / "go.mod").exists():
             cmd = ["go", "test", "./..."]
         else:
-            # Sem runner detectado — considera sucesso (projeto ainda não tem testes)
             result["success"] = True
+            result["skipped"] = True
             result["output"] = "No test runner detected, skipping."
             return result
 
@@ -303,17 +209,14 @@ class InnerLoop:
             result["output"] = proc.stdout + proc.stderr
             result["success"] = proc.returncode == 0
 
-            # Parse básico de contagem (heurística, varia por runner)
             output = result["output"]
             if "passed" in output.lower():
-                # Jest/Vitest style: "Tests: 3 passed, 1 failed"
                 import re
                 passed = re.search(r"(\d+)\s+passed", output)
                 failed = re.search(r"(\d+)\s+failed", output)
                 result["passing"] = int(passed.group(1)) if passed else 0
                 result["failing"] = int(failed.group(1)) if failed else 0
             elif "passed" in output or "failed" in output:
-                # pytest style: "4 passed, 1 failed"
                 import re
                 passed = re.search(r"(\d+)\s+passed", output)
                 failed = re.search(r"(\d+)\s+failed", output)

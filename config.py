@@ -38,7 +38,12 @@ LITELLM_API_KEY = os.getenv("ORCH_LITELLM_KEY", "masterofpuppets")
 
 # Limites do inner loop
 INNER_LOOP_MAX_ATTEMPTS = int(os.getenv("ORCH_INNER_MAX_ATTEMPTS", "10"))
-INNER_LOOP_TIMEOUT_SECONDS = int(os.getenv("ORCH_INNER_TIMEOUT", "600"))
+INNER_LOOP_TIMEOUT_SECONDS = int(os.getenv("ORCH_INNER_TIMEOUT", "1200"))
+
+# Backend de coding agent (litellm | aider | opencode)
+CODING_BACKEND = os.getenv("ORCH_CODING_BACKEND", "litellm")
+AIDER_BIN = os.getenv("ORCH_AIDER_BIN", "aider")
+OPENCODE_BIN = os.getenv("ORCH_OPENCODE_BIN", "opencode")
 
 
 # ── Claude Code ────────────────────────────────────────────────────
@@ -50,8 +55,8 @@ CLAUDE_CODE_BIN = os.getenv("ORCH_CLAUDE_BIN", "claude")
 CLAUDE_CODE_MAX_CALLS_PER_WINDOW = int(os.getenv("ORCH_CC_MAX_CALLS", "10"))
 CLAUDE_CODE_WINDOW_MINUTES = int(os.getenv("ORCH_CC_WINDOW_MIN", "30"))
 
-# Homologação
-MAX_HOMOLOGATION_ATTEMPTS = int(os.getenv("ORCH_MAX_HOMOLOG", "3"))
+# Rodadas máximas por task (cada rodada = inner loop até 10 + 1 homologação)
+MAX_HOMOLOGATION_ATTEMPTS = int(os.getenv("ORCH_MAX_HOMOLOG", "5"))
 
 
 # ── Session ────────────────────────────────────────────────────────

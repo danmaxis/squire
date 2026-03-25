@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional, TypeVar
 
@@ -68,13 +68,13 @@ def load_checkpoint(project_id: str) -> Optional[Checkpoint]:
 
 
 def save_checkpoint(project_id: str, cp: Checkpoint) -> None:
-    cp.last_heartbeat = datetime.utcnow()
+    cp.last_heartbeat = datetime.now(timezone.utc)
     save_model(checkpoint_path(project_id), cp)
 
 
 def heartbeat(project_id: str, cp: Checkpoint) -> None:
     """Atualiza apenas o heartbeat — operação leve para o timer."""
-    cp.last_heartbeat = datetime.utcnow()
+    cp.last_heartbeat = datetime.now(timezone.utc)
     save_checkpoint(project_id, cp)
 
 
@@ -85,7 +85,7 @@ def load_project(project_id: str) -> Optional[Project]:
 
 
 def save_project(project_id: str, project: Project) -> None:
-    project.updated_at = datetime.utcnow()
+    project.updated_at = datetime.now(timezone.utc)
     save_model(config.project_dir(project_id) / "project.json", project)
 
 
@@ -125,7 +125,7 @@ def acquire_lock(session_id: str) -> bool:
         expires_at = existing.acquired_at + timedelta(
             minutes=existing.ttl_minutes
         )
-        if datetime.utcnow() < expires_at:
+        if datetime.now(timezone.utc) < expires_at:
             # Lock ainda válido e de outra sessão
             if existing.holder != session_id:
                 return False
@@ -134,7 +134,7 @@ def acquire_lock(session_id: str) -> bool:
 
     lock = SessionLock(
         holder=session_id,
-        acquired_at=datetime.utcnow(),
+        acquired_at=datetime.now(timezone.utc),
         ttl_minutes=config.SESSION_LOCK_TTL_MINUTES,
         pid=os.getpid(),
     )
@@ -152,7 +152,7 @@ def renew_lock(session_id: str) -> None:
     """Renova o TTL do lock."""
     existing = load_model(config.SESSION_LOCK_FILE, SessionLock)
     if existing and existing.holder == session_id:
-        existing.acquired_at = datetime.utcnow()
+        existing.acquired_at = datetime.now(timezone.utc)
         save_model(config.SESSION_LOCK_FILE, existing)
 
 
@@ -186,7 +186,7 @@ def add_alert(
 
 def load_stats() -> GlobalStats:
     result = load_model(config.STATS_FILE, GlobalStats)
-    today = datetime.utcnow().strftime("%Y-%m-%d")
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     if result is None or result.date != today:
         return GlobalStats(date=today)
     return result

@@ -24,7 +24,9 @@ from models import LLMContextSummary, Task
 class HomologationResult:
     """Resultado da homologação pelo Claude Code."""
     approved: bool = False
-    feedback: str = ""           # razão da aprovação/rejeição
+    summary: str = ""            # resumo em até 3 linhas — para log e contexto do agente local
+    feedback: str = ""           # explicação detalhada da decisão
+    fix_suggestion: str = ""     # passos concretos para o agente local corrigir (rejeição)
     suggestions: list[str] = None  # melhorias sugeridas (mesmo se aprovado)
     error: str | None = None     # erro de execução (não de review)
 
@@ -40,9 +42,22 @@ class Homologator:
         self,
         project_path: str,
         claude_bin: str = config.CLAUDE_CODE_BIN,
+        verbose: bool = True,
     ):
         self.project_path = Path(project_path)
         self.claude_bin = claude_bin
+        self.verbose = verbose
+
+    def _vlog(self, arrow: str, text: str, max_lines: int = 3) -> None:
+        """Imprime preview de até 3 linhas com prefixo visual ┊."""
+        if not self.verbose:
+            return
+        from datetime import datetime, timezone
+        ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+        lines = [l for l in text.splitlines() if l.strip()][:max_lines]
+        for i, line in enumerate(lines):
+            prefix = f"┊{arrow}" if i == 0 else "┊ "
+            print(f"[{ts}]   {prefix} {line[:120]}")
 
     def review(
         self,
@@ -57,6 +72,7 @@ class Homologator:
         envia o prompt e recebe a resposta como stdout.
         """
         prompt = self._build_review_prompt(task, context, attempt)
+        self._vlog("→", prompt)
 
         try:
             result = subprocess.run(
@@ -86,6 +102,7 @@ class Homologator:
                     error=f"Claude Code retornou stdout vazio (stderr: {stderr_hint})",
                 )
 
+            self._vlog("←", result.stdout[:800])
             return self._parse_response(result.stdout)
 
         except subprocess.TimeoutExpired:
@@ -135,8 +152,10 @@ Testes: {context.tests_passing} passando, {context.tests_failing} falhando
 Responda APENAS com JSON válido, sem markdown:
 {{
   "approved": true/false,
-  "feedback": "Explicação da decisão",
-  "suggestions": ["melhoria 1", "melhoria 2"]
+  "summary": "Resumo em até 3 linhas curtas do veredicto e razão principal",
+  "feedback": "Explicação detalhada da decisão",
+  "fix_suggestion": "Se rejeitado: passos concretos e específicos para o agente local corrigir na próxima tentativa (ex: 'Adicionar empty state em CommitLog.tsx quando commits=[]. Usar router.refresh() no lugar de window.location.reload()'). Se aprovado: deixar vazio.",
+  "suggestions": ["melhoria opcional 1", "melhoria opcional 2"]
 }}"""
 
     def _read_files_for_review(self, files_touched: list[str]) -> str:
@@ -189,7 +208,9 @@ Responda APENAS com JSON válido, sem markdown:
 
             return HomologationResult(
                 approved=review.get("approved", False),
+                summary=review.get("summary", ""),
                 feedback=review.get("feedback", ""),
+                fix_suggestion=review.get("fix_suggestion", ""),
                 suggestions=review.get("suggestions", []),
             )
 
@@ -215,9 +236,21 @@ class TechnicalEscalation:
         self,
         project_path: str,
         claude_bin: str = config.CLAUDE_CODE_BIN,
+        verbose: bool = True,
     ):
         self.project_path = Path(project_path)
         self.claude_bin = claude_bin
+        self.verbose = verbose
+
+    def _vlog(self, arrow: str, text: str, max_lines: int = 3) -> None:
+        if not self.verbose:
+            return
+        from datetime import datetime, timezone
+        ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+        lines = [l for l in text.splitlines() if l.strip()][:max_lines]
+        for i, line in enumerate(lines):
+            prefix = f"┊{arrow}" if i == 0 else "┊ "
+            print(f"[{ts}]   {prefix} {line[:120]}")
 
     def unblock(
         self,
@@ -241,6 +274,7 @@ Analise o problema e forneça instruções claras e específicas para o
 LLM local resolver. Seja direto — ele vai receber exatamente o que
 você escrever como contexto adicional na próxima tentativa."""
 
+        self._vlog("→", prompt)
         try:
             result = subprocess.run(
                 [self.claude_bin, "--print", prompt],
@@ -249,6 +283,9 @@ você escrever como contexto adicional na próxima tentativa."""
                 text=True,
                 timeout=120,
             )
-            return result.stdout.strip() if result.returncode == 0 else ""
+            if result.returncode == 0:
+                self._vlog("←", result.stdout)
+                return result.stdout.strip()
+            return ""
         except (subprocess.TimeoutExpired, FileNotFoundError):
             return ""

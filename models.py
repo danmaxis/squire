@@ -5,7 +5,7 @@ Servem como contrato entre orquestrador, inner loop e dashboard.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 
@@ -75,9 +75,10 @@ class Project(BaseModel):
     repo_path: str
     stack: list[str] = []
     status: ProjectStatus = ProjectStatus.planning
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     current_task_id: Optional[str] = None
+    coding_backend: Optional[str] = None  # None = usa ORCH_CODING_BACKEND global
 
 
 # ── Tasks ──────────────────────────────────────────────────────────
@@ -98,7 +99,7 @@ class Task(BaseModel):
     max_attempts: int = 10  # inner loop retries
     homologation_result: Optional[str] = None  # "approved" | "rejected"
     homologation_attempt: int = 0
-    max_homologation_attempts: int = 3
+    max_homologation_attempts: int = 5  # número máximo de rodadas (inner loop + homologação)
     completed_at: Optional[datetime] = None
     claude_code_assisted: bool = False
     subtasks: list[Subtask] = []
@@ -111,7 +112,7 @@ class TaskList(BaseModel):
 # ── History ────────────────────────────────────────────────────────
 
 class HistoryEvent(BaseModel):
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     type: EventType
     task_id: Optional[str] = None
     attempt: Optional[int] = None
@@ -163,7 +164,7 @@ class LLMContextSummary(BaseModel):
 
 class RateLimitState(BaseModel):
     claude_code_calls_this_window: int = 0
-    window_started_at: datetime = Field(default_factory=datetime.utcnow)
+    window_started_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     window_duration_minutes: int = 30
     max_calls_per_window: int = 10
 
@@ -179,8 +180,8 @@ class Checkpoint(BaseModel):
     version: int = 1
     session_id: str = ""
     phase: ProjectStatus = ProjectStatus.implementing
-    started_at: datetime = Field(default_factory=datetime.utcnow)
-    last_heartbeat: datetime = Field(default_factory=datetime.utcnow)
+    started_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_heartbeat: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     cursor: Cursor = Field(default_factory=Cursor)
     llm_context: LLMContextSummary = Field(default_factory=LLMContextSummary)
     rate_limit: RateLimitState = Field(default_factory=RateLimitState)
@@ -191,7 +192,7 @@ class Checkpoint(BaseModel):
 
 class SessionLock(BaseModel):
     holder: str
-    acquired_at: datetime = Field(default_factory=datetime.utcnow)
+    acquired_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     ttl_minutes: int = 60
     pid: int = 0
 
@@ -204,7 +205,7 @@ class Alert(BaseModel):
     type: str
     task_id: Optional[str] = None
     message: str
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     acknowledged: bool = False
 
 

@@ -22,8 +22,9 @@ from __future__ import annotations
 import argparse
 import sys
 import threading
+import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 import checkpoint as ckpt
 import config
@@ -45,7 +46,7 @@ from models import (
 
 def log(msg: str, level: str = "info") -> None:
     """Log simples com timestamp."""
-    ts = datetime.utcnow().strftime("%H:%M:%S")
+    ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
     prefix = {"info": "→", "ok": "✓", "warn": "⚠", "error": "✗"}
     print(f"[{ts}] {prefix.get(level, '→')} {msg}")
 
@@ -53,10 +54,11 @@ def log(msg: str, level: str = "info") -> None:
 class Orchestrator:
     """Loop principal do orquestrador."""
 
-    def __init__(self, project_id: str, dry_run: bool = False):
+    def __init__(self, project_id: str, dry_run: bool = False, verbose: bool = True):
         self.project_id = project_id
         self.dry_run = dry_run
-        self.session_id = f"sess-{datetime.utcnow():%Y%m%d-%H%M}-{uuid.uuid4().hex[:6]}"
+        self.verbose = verbose
+        self.session_id = f"sess-{datetime.now(timezone.utc):%Y%m%d-%H%M}-{uuid.uuid4().hex[:6]}"
 
         # Carregar estado
         self.project = ckpt.load_project(project_id)
@@ -70,9 +72,10 @@ class Orchestrator:
         )
 
         # Componentes
-        self.inner_loop = InnerLoop(self.project.repo_path)
-        self.homologator = Homologator(self.project.repo_path)
-        self.escalation = TechnicalEscalation(self.project.repo_path)
+        backend_name = self.project.coding_backend or config.CODING_BACKEND
+        self.inner_loop = InnerLoop(self.project.repo_path, backend=backend_name, verbose=verbose)
+        self.homologator = Homologator(self.project.repo_path, verbose=verbose)
+        self.escalation = TechnicalEscalation(self.project.repo_path, verbose=verbose)
         self.rate_limiter = RateLimiter(self.cp.rate_limit)
 
         # Stats
@@ -186,10 +189,14 @@ class Orchestrator:
                 continue
 
             if result.success:
-                log(f"Testes passando ({result.tests_passing} ok)", "ok")
+                if result.tests_skipped:
+                    log("Sem testes configurados — avançando para homologação", "ok")
+                else:
+                    log(f"Testes passando ({result.tests_passing} ok)", "ok")
                 self._record_event(
                     EventType.tests_passed, task.id, task.attempts,
-                    f"{result.tests_passing} testes passando",
+                    "sem testes configurados" if result.tests_skipped
+                    else f"{result.tests_passing} testes passando",
                     Actor.local_llm,
                 )
                 return True
@@ -225,33 +232,62 @@ class Orchestrator:
         log(f"Inner loop esgotou {task.max_attempts} tentativas", "error")
         return False
 
-    # ── Homologação (uma task) ─────────────────────────────────────
+    # ── Espera produtiva ───────────────────────────────────────────
+
+    def _wait_productively(self, task, last_feedback: str) -> None:
+        """
+        Enquanto o rate limit estiver ativo, continua refinando o código
+        com o feedback da última homologação, em vez de dormir.
+        Quando a janela resetar, retorna e permite nova tentativa de homologação.
+        """
+        while not self.rate_limiter.can_call():
+            wait = self.rate_limiter.wait_seconds()
+            log(
+                f"Rate limit: {wait // 60:.0f}min restantes — "
+                "continuando inner loop enquanto aguarda...", "warn"
+            )
+            task.attempts = 0
+            self._run_inner_loop(task, homologation_feedback=last_feedback)
+
+    # ── Ciclo de rodadas (Ralph Loop) ─────────────────────────────
 
     def _run_homologation(self, task) -> bool:
         """
-        Submete a task para homologação pelo Claude Code.
-        Retorna True se aprovada.
+        Executa o ciclo completo de rodadas para uma task.
+
+        Cada rodada = inner loop (até max_attempts) + homologação pelo Claude Code.
+        O inner loop roda sempre, independente de os testes passarem ou não.
+        Se aprovado em qualquer rodada → True. Se esgotou max_homologation_attempts → False.
         """
+        last_feedback = ""  # feedback acumulado da última rejeição
+
         while task.homologation_attempt < task.max_homologation_attempts:
+            rodada = task.homologation_attempt + 1
+            total  = task.max_homologation_attempts
+
+            # ── Inner loop desta rodada ──
+            log(f"Rodada {rodada}/{total} — inner loop: [{task.id}] {task.title}")
+            task.attempts = 0
+            self._run_inner_loop(task, homologation_feedback=last_feedback)
+            # Resultado dos testes é ignorado: sempre avança para homologação
+
+            # Pausa para garantir que o Qwen terminou antes do claude --print
+            time.sleep(5)
+
+            # ── Homologação desta rodada ──
             task.homologation_attempt += 1
             task.status = TaskStatus.homologating
             self.cp.cursor.step = CursorStep.homologation
             self.cp.cursor.homologation_attempt = task.homologation_attempt
 
-            log(
-                f"Homologação: {task.title} "
-                f"(tentativa {task.homologation_attempt}/{task.max_homologation_attempts})"
-            )
+            log(f"Rodada {rodada}/{total} — homologação: [{task.id}] {task.title}")
 
             if self.dry_run:
                 log("[dry-run] Simulando homologação", "warn")
                 return True
 
-            # Rate limit (só no modo real)
-            self.rate_limiter.wait_if_needed()
-            if not self.rate_limiter.can_call():
-                log("Rate limit atingido, aguardando...", "warn")
-                self.rate_limiter.wait_if_needed()
+            # Se rate limited, refina com inner loop enquanto aguarda
+            self._wait_productively(task, last_feedback)
 
             self.rate_limiter.record_call()
             self.stats.daily_claude_code_calls += 1
@@ -262,7 +298,6 @@ class Orchestrator:
                 attempt=task.homologation_attempt,
             )
 
-            # Checkpoint
             self._save_state()
 
             if result.error:
@@ -274,8 +309,10 @@ class Orchestrator:
                 )
                 continue
 
+            verdict_log = result.summary or result.feedback[:100]
+
             if result.approved:
-                log(f"Homologação aprovada! {result.feedback[:100]}", "ok")
+                log(f"Homologação aprovada! {verdict_log}", "ok")
                 self._record_event(
                     EventType.homologation_approved, task.id,
                     task.homologation_attempt,
@@ -284,24 +321,24 @@ class Orchestrator:
                 task.homologation_result = "approved"
                 return True
 
-            # Rejeitado — feedback volta pro inner loop
-            log(f"Homologação rejeitada: {result.feedback[:100]}", "warn")
+            log(f"Homologação rejeitada: {verdict_log}", "warn")
             self._record_event(
                 EventType.homologation_failed, task.id,
                 task.homologation_attempt,
                 result.feedback[:300], Actor.claude_code,
             )
+            # Monta contexto para a próxima rodada: fix_suggestion primeiro (mais acionável),
+            # depois summary e feedback como contexto adicional
+            parts = []
+            if result.fix_suggestion:
+                parts.append(f"## O que corrigir\n{result.fix_suggestion}")
+            if result.summary:
+                parts.append(f"## Resumo da rejeição\n{result.summary}")
+            if result.feedback:
+                parts.append(f"## Detalhes\n{result.feedback}")
+            last_feedback = "\n\n".join(parts) if parts else result.feedback
 
-            # Se ainda tem tentativas, roda inner loop de novo com o feedback
-            if task.homologation_attempt < task.max_homologation_attempts:
-                log("Voltando ao inner loop com feedback da homologação...")
-                task.attempts = 0  # reset do inner loop
-                inner_ok = self._run_inner_loop(task, homologation_feedback=result.feedback)
-                if not inner_ok:
-                    # Inner loop falhou de novo — pular homologação
-                    continue
-
-        # Esgotou homologações
+        # Esgotou todas as rodadas
         task.homologation_result = "rejected"
         return False
 
@@ -340,7 +377,7 @@ class Orchestrator:
                 self._save_state()
 
                 log(f"\n{'='*50}")
-                log(f"Task: {task.title}")
+                log(f"Task [{task.id}]: {task.title}")
                 log(f"{'='*50}")
 
                 self._record_event(
@@ -348,49 +385,19 @@ class Orchestrator:
                     summary=task.title,
                 )
 
-                # ── Inner loop ──
-                inner_ok = self._run_inner_loop(task)
-
-                # Pausa entre inner loop e homologação — garante que o Qwen
-                # terminou de processar antes de iniciar o claude --print
-                import time as _time
-                _time.sleep(5)
-
-                if not inner_ok:
-                    # Inner loop falhou completamente
-                    task.status = TaskStatus.blocked
-                    self.cp.recovery.can_resume = True
-                    self.cp.recovery.resume_action = "skip_task"
-                    self.cp.recovery.blocked_reason = (
-                        f"Inner loop esgotou {task.max_attempts} tentativas"
-                    )
-                    ckpt.add_alert(
-                        self.project_id,
-                        "inner_loop_exhausted",
-                        f"Task '{task.title}' não passou nos testes após "
-                        f"{task.max_attempts} tentativas.",
-                        task_id=task.id,
-                        severity=AlertSeverity.critical,
-                    )
-                    self._record_event(
-                        EventType.escalation_created, task.id,
-                        summary="Inner loop esgotado — intervenção necessária",
-                    )
-                    self._save_state()
-                    continue
-
-                # ── Homologação ──
+                # ── Ciclo de rodadas: inner loop + homologação ──
                 homolog_ok = self._run_homologation(task)
 
                 if homolog_ok:
                     task.status = TaskStatus.completed
-                    task.completed_at = datetime.utcnow()
+                    task.completed_at = datetime.now(timezone.utc)
                     self.stats.tasks_completed_today += 1
                     self._record_event(
                         EventType.task_completed, task.id,
                         summary=f"Aprovada na homologação #{task.homologation_attempt}",
                     )
-                    log(f"Task concluída: {task.title}", "ok")
+                    log(f"Task concluída: [{task.id}] {task.title}", "ok")
+                    self._log_remaining_tasks()
                 else:
                     task.status = TaskStatus.blocked
                     ckpt.add_alert(
@@ -444,6 +451,23 @@ class Orchestrator:
             log("Lock liberado. Sessão encerrada.")
             self._print_summary()
 
+    def _log_remaining_tasks(self):
+        """Exibe o progresso após cada task concluída (só tasks de nível 1)."""
+        icons = {
+            TaskStatus.completed:    "✓",
+            TaskStatus.blocked:      "✗",
+            TaskStatus.implementing: "⟳",
+            TaskStatus.homologating: "⌛",
+            TaskStatus.pending:      "·",
+            TaskStatus.testing:      "⧖",
+        }
+        total = len(self.task_list.tasks)
+        done  = sum(1 for t in self.task_list.tasks if t.status == TaskStatus.completed)
+        log(f"Progresso: {done}/{total} tasks")
+        for t in self.task_list.tasks:
+            icon = icons.get(t.status, "?")
+            log(f"  {icon} [{t.id}] {t.title}")
+
     def _print_summary(self):
         """Imprime resumo da sessão."""
         completed = sum(
@@ -474,11 +498,13 @@ def main():
     parser.add_argument("project_id", help="ID do projeto (nome do diretório)")
     parser.add_argument("--dry-run", action="store_true", help="Simula sem executar")
     parser.add_argument("--resume", action="store_true", help="Retoma sessão anterior")
+    parser.add_argument("--quiet", action="store_true", help="Suprime preview de prompts/respostas")
     args = parser.parse_args()
 
     orchestrator = Orchestrator(
         project_id=args.project_id,
         dry_run=args.dry_run,
+        verbose=not args.quiet,
     )
     orchestrator.run()
 
