@@ -190,30 +190,40 @@ class InnerLoop:
         files_touched = []
         current_file = None
         current_content = []
+        pending_path = None  # caminho detectado na linha anterior ao fence
 
         for line in llm_response.split("\n"):
-            if line.startswith("```") and not line.strip() == "```":
-                fence_id = line[3:].strip()  # ex: "filepath:src/foo.ts" ou "typescript:src/foo.ts"
-                detected_path = self._extract_filepath(fence_id)
+            stripped = line.strip()
+
+            if stripped.startswith("```") and stripped != "```":
+                fence_id = stripped[3:].strip()
+                detected_path = self._extract_filepath(fence_id) or pending_path
 
                 if detected_path:
-                    # Início de novo arquivo
                     if current_file:
                         self._write_file(current_file, "\n".join(current_content))
                         files_touched.append(current_file)
                     current_file = detected_path
                     current_content = []
                 elif current_file:
-                    # Fence de abertura sem path enquanto estamos dentro de um bloco — tratar como conteúdo
                     current_content.append(line)
-            elif line.strip() == "```" and current_file:
-                # Fim do bloco
-                self._write_file(current_file, "\n".join(current_content))
-                files_touched.append(current_file)
-                current_file = None
-                current_content = []
+                pending_path = None
+
+            elif stripped == "```":
+                if current_file:
+                    self._write_file(current_file, "\n".join(current_content))
+                    files_touched.append(current_file)
+                    current_file = None
+                    current_content = []
+                pending_path = None
+
             elif current_file:
                 current_content.append(line)
+                pending_path = None
+
+            else:
+                # Linha fora de bloco — pode ser um caminho de arquivo antes do fence
+                pending_path = self._extract_filepath(stripped) if stripped else None
 
         return files_touched
 
