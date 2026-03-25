@@ -20,6 +20,7 @@ Uso:
 from __future__ import annotations
 
 import argparse
+import subprocess
 import sys
 import threading
 import time
@@ -107,7 +108,6 @@ class Orchestrator:
         Se houver arquivos sujos (modified, staged, deleted), executa git checkout -- .
         para restaurar o estado do último commit.
         """
-        import subprocess
         repo = self.project.repo_path
         try:
             status = subprocess.run(

@@ -311,3 +311,128 @@ class TestRunHomologation:
 
         assert mock_time.sleep.call_count == 2
         mock_time.sleep.assert_called_with(5)
+
+
+# ── TestSkipHomologation ─────────────────────────────────────────────
+
+class TestSkipHomologation:
+    """
+    Tasks com skip_homologation=True devem ser auto-aprovadas após o inner loop,
+    sem chamar o homologador.
+    """
+
+    def test_skip_homologation_auto_aprova_sem_chamar_cc(self):
+        """Com skip_homologation=True, aprovação ocorre sem chamar homologator.review."""
+        orch = make_orchestrator()
+        task = make_task(skip_homologation=True)
+        orch._run_inner_loop = MagicMock(return_value=True)
+
+        with patch("orchestrator.time"):
+            result = orch._run_homologation(task)
+
+        assert result is True
+        assert task.homologation_result == "approved"
+        orch.homologator.review.assert_not_called()
+
+    def test_skip_homologation_registra_evento_aprovado(self):
+        """Auto-aprovação deve registrar evento homologation_approved."""
+        from models import EventType, Actor
+        orch = make_orchestrator()
+        task = make_task(skip_homologation=True)
+        orch._run_inner_loop = MagicMock(return_value=True)
+
+        with patch("orchestrator.time"):
+            orch._run_homologation(task)
+
+        orch._record_event.assert_any_call(
+            EventType.homologation_approved,
+            task.id,
+            1,
+            "Auto-aprovado: skip_homologation=True",
+            Actor.orchestrator,
+        )
+
+    def test_sem_skip_homologation_chama_cc_normalmente(self):
+        """Com skip_homologation=False (default), homologator.review é chamado."""
+        orch = make_orchestrator()
+        task = make_task(skip_homologation=False)
+        orch._run_inner_loop = MagicMock(return_value=True)
+        orch.homologator.review.return_value = make_homolog_result(approved=True)
+
+        with patch("orchestrator.time"):
+            orch._run_homologation(task)
+
+        orch.homologator.review.assert_called_once()
+
+
+# ── TestCleanupGitState ──────────────────────────────────────────────
+
+class TestCleanupGitState:
+    """
+    _cleanup_git_state() deve limpar o working tree sujo antes de cada task.
+    """
+
+    def test_nao_faz_nada_quando_git_limpo(self):
+        """Se git status --short retornar vazio, não executa checkout."""
+        orch = make_orchestrator()
+
+        with patch("orchestrator.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            orch._cleanup_git_state()
+
+        calls = [c.args[0] for c in mock_run.call_args_list]
+        assert ["git", "status", "--short"] in calls
+        assert not any("checkout" in str(c) for c in calls)
+
+    def test_executa_checkout_quando_working_tree_sujo(self):
+        """Se git status mostrar arquivos modificados, executa git checkout -- ."""
+        orch = make_orchestrator()
+
+        status_result = MagicMock(returncode=0, stdout=" M main.py\n?? tmp.py\n", stderr="")
+        checkout_result = MagicMock(returncode=0, stdout="", stderr="")
+
+        with patch("orchestrator.subprocess.run", side_effect=[status_result, checkout_result]) as mock_run:
+            orch._cleanup_git_state()
+
+        calls = [c.args[0] for c in mock_run.call_args_list]
+        assert ["git", "checkout", "--", "."] in calls
+
+    def test_continua_se_git_status_falhar(self):
+        """Se git status falhar (repo sem commits, sem git), não deve levantar exceção."""
+        orch = make_orchestrator()
+
+        with patch("orchestrator.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=128, stdout="", stderr="not a git repo")
+            orch._cleanup_git_state()  # não deve lançar
+
+    def test_continua_se_subprocess_lancar_excecao(self):
+        """Exceções no subprocess não devem propagar — apenas logar warning."""
+        orch = make_orchestrator()
+
+        with patch("orchestrator.subprocess.run", side_effect=FileNotFoundError("git not found")):
+            orch._cleanup_git_state()  # não deve lançar
+
+    def test_cleanup_chamado_antes_de_run_homologation(self):
+        """_cleanup_git_state deve ser chamado antes de _run_homologation em run()."""
+        orch = make_orchestrator()
+        task = make_task()
+
+        call_order = []
+        orch._cleanup_git_state = MagicMock(side_effect=lambda: call_order.append("cleanup"))
+        orch._run_homologation = MagicMock(side_effect=lambda t: call_order.append("homolog") or True)
+        orch._find_current_task = MagicMock(side_effect=[task, None])
+        orch._record_event = MagicMock()
+        orch._save_state = MagicMock()
+
+        with (
+            patch("orchestrator.config.ensure_dirs"),
+            patch("orchestrator.ckpt.save_project"),
+            patch("orchestrator.ckpt.save_tasks"),
+            patch("orchestrator.ckpt.save_history"),
+            patch("orchestrator.ckpt.release_lock"),
+            patch("orchestrator.ckpt.acquire_lock"),
+            patch("orchestrator.threading"),
+        ):
+            orch.run()
+
+        assert call_order.index("cleanup") < call_order.index("homolog")
