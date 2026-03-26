@@ -411,6 +411,18 @@ TASKEOF
     local editor="${EDITOR:-nano}"
     ok "Projeto '$project' criado em $proj_dir"
     echo ""
+
+    # Perguntar se deseja usar 'squire tasks plan' para criar as tasks iniciais
+    echo -e -n "  Deseja planejar as tasks agora com Claude? [y/N] "
+    local resposta
+    read -r resposta
+    if [[ "${resposta,,}" == "y" ]]; then
+        echo ""
+        SQUIRE_STATE_ROOT="$SQUIRE_STATE_ROOT" \
+            "$SQUIRE_VENV" -u "$SQUIRE_DIR/tasks_cli.py" plan "$project"
+        echo ""
+    fi
+
     echo -e "  ${BOLD}Próximos passos:${RESET}"
     echo -e "  1. Edite as tasks:   ${CYAN}$editor $proj_dir/tasks.json${RESET}"
     echo -e "  2. Crie o repo:      ${CYAN}mkdir -p $repo_path && cd $repo_path && git init${RESET}"
