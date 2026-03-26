@@ -301,10 +301,22 @@ class AiderBackend(CodingBackend):
     - --message: instrução em texto
     - --no-auto-commits: crítico — não commitamos aqui, o orquestrador decide
     - --yes: aceita confirmações automáticas (modo não-interativo)
+    - --no-pretty --no-stream: output limpo, sem ANSI codes, sem streaming
+    - --map-tokens 0: desativa repo-map (desnecessário para instruções focadas)
+    - --lint-cmd / --auto-lint: validação sintática automática após cada edição
     """
 
     def __init__(self, aider_bin: str = config.AIDER_BIN):
         self.aider_bin = aider_bin
+
+    def _detect_lint_cmd(self, project_path: Path) -> str | None:
+        """Detecta o linter adequado para o projeto."""
+        if (project_path / "tsconfig.json").exists():
+            return "npx --no tsc --noEmit"
+        # Verifica se é projeto Python com arquivos .py
+        if any(project_path.glob("*.py")):
+            return "python3 -m py_compile"
+        return None
 
     def execute_instruction(
         self,
@@ -317,7 +329,14 @@ class AiderBackend(CodingBackend):
             "--message", instruction,
             "--no-auto-commits",
             "--yes",
+            "--no-pretty",
+            "--no-stream",
+            "--map-tokens", "0",
         ]
+
+        lint_cmd = self._detect_lint_cmd(project_path)
+        if lint_cmd:
+            cmd += ["--lint-cmd", lint_cmd, "--auto-lint"]
         with _LLMLock():
             try:
                 proc = subprocess.run(
