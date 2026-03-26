@@ -85,6 +85,7 @@ class CodingBackend(ABC):
         instruction: str,
         project_path: Path,
         timeout: int,
+        task_hint: dict | None = None,
     ) -> BackendResult:
         """
         Executa uma instrução de codificação no projeto.
@@ -125,6 +126,7 @@ class LiteLLMBackend(CodingBackend):
         instruction: str,
         project_path: Path,
         timeout: int,
+        task_hint: dict | None = None,
     ) -> BackendResult:
         """Chama o LLM, parseia a resposta e escreve os arquivos."""
         with _LLMLock():
@@ -323,6 +325,7 @@ class AiderBackend(CodingBackend):
         instruction: str,
         project_path: Path,
         timeout: int,
+        task_hint: dict | None = None,
     ) -> BackendResult:
         cmd = [
             self.aider_bin,
@@ -468,13 +471,62 @@ class OpenCodeBackend(CodingBackend):
     def __init__(self, opencode_bin: str = config.OPENCODE_BIN):
         self.opencode_bin = opencode_bin
 
+    def _select_agent(self, task_hint: dict) -> str:
+        """Seleciona o agente opencode mais adequado para o contexto da task."""
+        title = (task_hint.get("title") or "").lower()
+        desc = (task_hint.get("description") or "").lower()
+        combined = title + " " + desc
+        last_error = task_hint.get("last_error")
+        attempts = task_hint.get("attempts", 0)
+        skip_homolog = task_hint.get("skip_homologation", False)
+
+        # 1. Keywords de debug no título/descrição + erro presente → debug
+        if any(k in combined for k in ("bug", "fix", "corrig", "falh", "error", "erro")):
+            if last_error or attempts >= 3:
+                return "debug"
+
+        # 2. Erro presente (qualquer task) → debug
+        if last_error:
+            return "debug"
+
+        # 3. Terminal: operações de runtime sem edição de código
+        if any(k in combined for k in (
+            "migrat", "seed", "script", "environment", "ambient",
+            "verif", "check", "init db", "database", "banco",
+        )):
+            return "terminal"
+
+        # 4. Build: infra, dependências, config de projeto
+        if any(k in combined for k in (
+            "scaffold", "setup", "config", "dockerfile", "package",
+            "dependenc", "install", "tsconfig", "estrutura", "boilerplate",
+            "makefile", "ci/cd", "vite", "webpack",
+        )):
+            return "build"
+
+        # 5. Plan: design/arquitetura em tasks de planejamento explícito
+        if skip_homolog and any(k in combined for k in (
+            "design", "arquitet", "plan", "estrutur", "decid", "defin",
+            "architect", "structur",
+        )):
+            return "plan"
+
+        # 6. Stuck sem erro explícito → debug
+        if attempts >= 3:
+            return "debug"
+
+        # 7. Default: implementação de feature
+        return "code"
+
     def execute_instruction(
         self,
         instruction: str,
         project_path: Path,
         timeout: int,
+        task_hint: dict | None = None,
     ) -> BackendResult:
-        cmd = [self.opencode_bin, "run", "--", instruction]
+        agent = self._select_agent(task_hint or {})
+        cmd = [self.opencode_bin, "run", "--agent", agent, "--", instruction]
         with _LLMLock():
             try:
                 proc = subprocess.run(

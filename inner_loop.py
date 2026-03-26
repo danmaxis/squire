@@ -85,6 +85,13 @@ class InnerLoop:
             instruction=instruction,
             project_path=self.project_path,
             timeout=config.INNER_LOOP_TIMEOUT_SECONDS,
+            task_hint={
+                "title": task.title,
+                "description": task.description,
+                "attempts": task.attempts,
+                "skip_homologation": task.skip_homologation,
+                "last_error": previous_context.last_error if previous_context else None,
+            },
         )
 
         if backend_result.error:
