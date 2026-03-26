@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from backends import BackendResult, OpenCodeBackend
+from backends import BackendResult, OpenCodeBackend, _is_source_file
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -223,3 +223,122 @@ class TestOpenCodeBackendAgentUsed:
             )
 
         assert result.agent_used == "code"  # default
+
+
+# ── TestIsSourceFile ─────────────────────────────────────────────────
+
+class TestIsSourceFile:
+    """_is_source_file — garante que node_modules/dist são excluídos do files_touched."""
+
+    # ── arquivos que DEVEM passar ────────────────────────────────────
+
+    def test_ts_source(self):
+        assert _is_source_file("src/index.ts") is True
+
+    def test_tsx_source(self):
+        assert _is_source_file("src/components/Card.tsx") is True
+
+    def test_py_source(self):
+        assert _is_source_file("squire.py") is True
+
+    def test_json_config(self):
+        assert _is_source_file("package.json") is True
+
+    def test_tsconfig(self):
+        assert _is_source_file("tsconfig.json") is True
+
+    def test_gitignore(self):
+        assert _is_source_file(".gitignore") is True
+
+    def test_dockerfile(self):
+        assert _is_source_file("Dockerfile") is True
+
+    def test_yaml(self):
+        assert _is_source_file("docker-compose.yml") is True
+
+    def test_nested_source(self):
+        assert _is_source_file("src/lib/utils.ts") is True
+
+    # ── arquivos que NÃO devem passar ────────────────────────────────
+
+    def test_node_modules_binary(self):
+        assert _is_source_file("node_modules/.bin/tsc") is False
+
+    def test_node_modules_package(self):
+        assert _is_source_file("node_modules/typescript/lib/typescript.js") is False
+
+    def test_node_modules_deeply_nested(self):
+        assert _is_source_file("node_modules/@cspotcode/source-map-support/LICENSE.md") is False
+
+    def test_dist_js(self):
+        assert _is_source_file("dist/index.js") is False
+
+    def test_dist_dts(self):
+        assert _is_source_file("dist/bing.d.ts") is False
+
+    def test_build_output(self):
+        assert _is_source_file("build/app.js") is False
+
+    def test_next_cache(self):
+        assert _is_source_file(".next/server/app/page.js") is False
+
+    def test_pycache(self):
+        assert _is_source_file("__pycache__/squire.cpython-311.pyc") is False
+
+    def test_venv(self):
+        assert _is_source_file(".venv/lib/python3.11/site-packages/pydantic/__init__.py") is False
+
+
+# ── TestGitDiffFilesFilter ───────────────────────────────────────────
+
+class TestGitDiffFilesFilter:
+    """_git_diff_files — node_modules/dist devem ser filtrados do resultado."""
+
+    def _make_proc(self, stdout="", returncode=0):
+        p = MagicMock()
+        p.returncode = returncode
+        p.stdout = stdout
+        p.stderr = ""
+        return p
+
+    def test_filtra_node_modules(self, tmp_path):
+        b = OpenCodeBackend(opencode_bin="opencode")
+        # OpenCodeBackend._git_diff_files faz 2 chamadas: git diff HEAD + git ls-files
+        ls_output = "src/index.ts\nnode_modules/.bin/tsc\nnode_modules/typescript/lib/ts.js\npackage.json\n"
+        with patch("backends.subprocess.run", side_effect=[
+            self._make_proc(""),          # git diff HEAD
+            self._make_proc(ls_output),   # git ls-files
+        ]):
+            files = b._git_diff_files(tmp_path)
+
+        assert "src/index.ts" in files
+        assert "package.json" in files
+        assert not any("node_modules" in f for f in files)
+
+    def test_filtra_dist(self, tmp_path):
+        b = OpenCodeBackend(opencode_bin="opencode")
+        ls_output = "src/bing.ts\ndist/bing.js\ndist/bing.d.ts\n"
+        with patch("backends.subprocess.run", side_effect=[
+            self._make_proc(""),
+            self._make_proc(ls_output),
+        ]):
+            files = b._git_diff_files(tmp_path)
+
+        assert "src/bing.ts" in files
+        assert not any("dist" in f for f in files)
+
+    def test_sem_commits_retorna_apenas_fontes(self, tmp_path):
+        """Repo sem HEAD: git diff falha (returncode 128), ls-files retorna todos os untracked."""
+        b = OpenCodeBackend(opencode_bin="opencode")
+        all_untracked = (
+            "src/index.ts\npackage.json\ntsconfig.json\n"
+            "node_modules/.bin/acorn\nnode_modules/typescript/README.md\n"
+            "dist/index.js\n"
+        )
+        with patch("backends.subprocess.run", side_effect=[
+            self._make_proc("", returncode=128),   # git diff HEAD falha
+            self._make_proc(all_untracked),         # git ls-files
+        ]):
+            files = b._git_diff_files(tmp_path)
+
+        assert set(files) == {"src/index.ts", "package.json", "tsconfig.json"}
