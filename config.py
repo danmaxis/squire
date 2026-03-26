@@ -41,7 +41,7 @@ INNER_LOOP_MAX_ATTEMPTS = int(os.getenv("SQUIRE_INNER_MAX_ATTEMPTS", "10"))
 INNER_LOOP_TIMEOUT_SECONDS = int(os.getenv("SQUIRE_INNER_TIMEOUT", "1200"))
 
 # Backend de coding agent (litellm | aider | opencode)
-CODING_BACKEND = os.getenv("SQUIRE_CODING_BACKEND", "litellm")
+CODING_BACKEND = os.getenv("SQUIRE_CODING_BACKEND", "opencode")
 AIDER_BIN = os.getenv("SQUIRE_AIDER_BIN", "aider")
 OPENCODE_BIN = os.getenv("SQUIRE_OPENCODE_BIN", "opencode")
 

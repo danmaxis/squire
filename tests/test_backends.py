@@ -1,9 +1,13 @@
 """Testes unitários para backends.py — foco na lógica de seleção de agente do OpenCodeBackend."""
 from __future__ import annotations
 
+import subprocess
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
 import pytest
 
-from backends import OpenCodeBackend
+from backends import BackendResult, OpenCodeBackend
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -129,3 +133,93 @@ class TestOpenCodeAgentSelection:
         # Ambos: seed (terminal) e install (build) → terminal ganha primeiro
         result = backend._select_agent(hint("Seed and install dependencies"))
         assert result == "terminal"
+
+
+# ── TestBackendResult ────────────────────────────────────────────────
+
+class TestOpenCodeBackendAgentUsed:
+    """execute_instruction deve popular BackendResult.agent_used com o agente selecionado."""
+
+    def _make_proc(self, returncode=0, stdout="done", stderr=""):
+        p = MagicMock()
+        p.returncode = returncode
+        p.stdout = stdout
+        p.stderr = stderr
+        return p
+
+    def _git_proc(self):
+        p = MagicMock()
+        p.stdout = ""
+        p.returncode = 0
+        return p
+
+    def _mock_lock(self):
+        """Context manager mock para _LLMLock (evita tentar criar /mnt/user)."""
+        cm = MagicMock()
+        cm.__enter__ = MagicMock(return_value=cm)
+        cm.__exit__ = MagicMock(return_value=False)
+        return cm
+
+    def test_agent_used_preenchido_no_resultado(self, tmp_path):
+        """BackendResult.agent_used deve refletir o agente escolhido por _select_agent."""
+        b = OpenCodeBackend(opencode_bin="opencode")
+        task_hint = hint("Implementar feature X")  # → code
+
+        with patch("backends.subprocess.run", return_value=self._make_proc()), \
+             patch("backends._LLMLock", return_value=self._mock_lock()), \
+             patch.object(b, "_git_diff_files", return_value=["src/foo.ts"]):
+            result = b.execute_instruction(
+                instruction="faça algo",
+                project_path=tmp_path,
+                timeout=30,
+                task_hint=task_hint,
+            )
+
+        assert result.agent_used == "code"
+
+    def test_agent_used_debug_quando_ha_erro(self, tmp_path):
+        b = OpenCodeBackend(opencode_bin="opencode")
+        task_hint = hint("Qualquer task", last_error="TypeError: x is undefined")
+
+        with patch("backends.subprocess.run", return_value=self._make_proc()), \
+             patch("backends._LLMLock", return_value=self._mock_lock()), \
+             patch.object(b, "_git_diff_files", return_value=[]):
+            result = b.execute_instruction(
+                instruction="corrija",
+                project_path=tmp_path,
+                timeout=30,
+                task_hint=task_hint,
+            )
+
+        assert result.agent_used == "debug"
+
+    def test_agent_used_build_keyword(self, tmp_path):
+        b = OpenCodeBackend(opencode_bin="opencode")
+        task_hint = hint("Setup inicial do projeto com Dockerfile")
+
+        with patch("backends.subprocess.run", return_value=self._make_proc()), \
+             patch("backends._LLMLock", return_value=self._mock_lock()), \
+             patch.object(b, "_git_diff_files", return_value=[]):
+            result = b.execute_instruction(
+                instruction="inicializar",
+                project_path=tmp_path,
+                timeout=30,
+                task_hint=task_hint,
+            )
+
+        assert result.agent_used == "build"
+
+    def test_agent_used_vazio_sem_task_hint(self, tmp_path):
+        """Sem task_hint → agente padrão (code), agent_used deve ser preenchido."""
+        b = OpenCodeBackend(opencode_bin="opencode")
+
+        with patch("backends.subprocess.run", return_value=self._make_proc()), \
+             patch("backends._LLMLock", return_value=self._mock_lock()), \
+             patch.object(b, "_git_diff_files", return_value=[]):
+            result = b.execute_instruction(
+                instruction="qualquer",
+                project_path=tmp_path,
+                timeout=30,
+            )
+
+        assert result.agent_used == "code"  # default

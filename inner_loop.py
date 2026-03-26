@@ -97,6 +97,8 @@ class InnerLoop:
         if backend_result.error:
             return InnerLoopResult(error=backend_result.error)
 
+        if backend_result.agent_used:
+            self._vlog("◆", f"agente: {backend_result.agent_used}")
         self._vlog("←", backend_result.raw_output)
 
         test_result = self._run_tests()
@@ -189,25 +191,30 @@ class InnerLoop:
         Retorna dict de falha (mesmo formato de _run_tests) se a sintaxe falhar,
         ou None se tudo ok (ou se não houver checker disponível).
         """
-        # TypeScript
+        # TypeScript — usa tsc local (node_modules/.bin/tsc) para evitar
+        # que npx falhe com "canceled due to missing packages" em setups novos
         if (self.project_path / "tsconfig.json").exists():
-            try:
-                proc = subprocess.run(
-                    ["npx", "--no", "tsc", "--noEmit"],
-                    cwd=str(self.project_path),
-                    capture_output=True,
-                    text=True,
-                    timeout=60,
-                )
-                if proc.returncode != 0:
-                    output = (proc.stdout + proc.stderr)[:2000]
-                    return {
-                        "success": False, "passing": 0, "failing": 1,
-                        "output": f"[TypeScript] Erro de sintaxe:\n{output}",
-                        "lint_clean": False, "skipped": False,
-                    }
-            except (FileNotFoundError, subprocess.TimeoutExpired):
-                pass  # tsc não instalado — não penalizar
+            tsc_bin = self.project_path / "node_modules" / ".bin" / "tsc"
+            if not tsc_bin.exists():
+                pass  # tsc não instalado ainda — não penalizar
+            else:
+                try:
+                    proc = subprocess.run(
+                        [str(tsc_bin), "--noEmit"],
+                        cwd=str(self.project_path),
+                        capture_output=True,
+                        text=True,
+                        timeout=60,
+                    )
+                    if proc.returncode != 0:
+                        output = (proc.stdout + proc.stderr)[:2000]
+                        return {
+                            "success": False, "passing": 0, "failing": 1,
+                            "output": f"[TypeScript] Erro de sintaxe:\n{output}",
+                            "lint_clean": False, "skipped": False,
+                        }
+                except (FileNotFoundError, subprocess.TimeoutExpired):
+                    pass  # não penalizar se tsc falhar por razão externa
 
         # Python
         if (self.project_path / "pyproject.toml").exists() or list(self.project_path.glob("*.py")):

@@ -123,7 +123,15 @@ class Squire:
             if not dirty:
                 return  # working tree limpo, nada a fazer
             log(f"Git state sujo detectado ({len(dirty.splitlines())} arquivo(s)) — limpando", "warn")
-            # Primeiro: unstage arquivos staged (git reset HEAD não falha se não há nada staged)
+            # Verificar se o repo tem commits — sem HEAD, checkout/reset falham
+            has_commits = subprocess.run(
+                ["git", "rev-parse", "--verify", "HEAD"],
+                cwd=repo, capture_output=True, timeout=5,
+            ).returncode == 0
+            if not has_commits:
+                log("Repo sem commits ainda — pulando limpeza do working tree", "info")
+                return
+            # Primeiro: unstage arquivos staged
             subprocess.run(
                 ["git", "reset", "HEAD", "--", "."],
                 cwd=repo, capture_output=True, text=True, timeout=10,

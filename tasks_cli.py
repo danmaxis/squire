@@ -83,7 +83,8 @@ def _call_claude(prompt: str, timeout: int = 120) -> Optional[str]:
     """Chama claude --print e retorna o conteúdo da resposta, ou None em erro."""
     try:
         result = subprocess.run(
-            [config.CLAUDE_CODE_BIN, "--print", "--output-format", "json", prompt],
+            [config.CLAUDE_CODE_BIN, "--print", "--output-format", "json"],
+            input=prompt,
             capture_output=True,
             text=True,
             timeout=timeout,

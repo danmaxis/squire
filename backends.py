@@ -74,6 +74,7 @@ class BackendResult:
     raw_output: str = ""          # stdout+stderr do processo/resposta
     error: str | None = None      # erro fatal (não de teste)
     reasoning: str = ""           # chain-of-thought do modelo (se disponível)
+    agent_used: str = ""          # agente opencode selecionado (vazio para outros backends)
 
 
 class CodingBackend(ABC):
@@ -548,7 +549,7 @@ class OpenCodeBackend(CodingBackend):
                 return BackendResult(error=f"opencode timed out ({timeout}s)")
 
         files_touched = self._git_diff_files(project_path)
-        return BackendResult(files_touched=files_touched, raw_output=raw_output)
+        return BackendResult(files_touched=files_touched, raw_output=raw_output, agent_used=agent)
 
     def _git_diff_files(self, project_path: Path) -> list[str]:
         """Mesmo mecanismo do AiderBackend."""

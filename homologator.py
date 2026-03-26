@@ -81,8 +81,8 @@ class Homologator:
                     self.claude_bin,
                     "--print",      # modo não-interativo
                     "--output-format", "json",
-                    prompt,
                 ],
+                input=prompt,   # stdin evita limite ARG_MAX com prompts que incluem conteúdo de arquivos
                 cwd=str(self.project_path),
                 capture_output=True,
                 text=True,
@@ -330,7 +330,8 @@ Cada arquivo deve ser completo e funcional. Não use TODOs nem esqueletos."""
         self._vlog("→", prompt)
         try:
             result = subprocess.run(
-                [self.claude_bin, "--print", prompt],
+                [self.claude_bin, "--print"],
+                input=prompt,
                 cwd=str(self.project_path),
                 capture_output=True,
                 text=True,
@@ -369,7 +370,8 @@ você escrever como contexto adicional na próxima tentativa."""
         self._vlog("→", prompt)
         try:
             result = subprocess.run(
-                [self.claude_bin, "--print", prompt],
+                [self.claude_bin, "--print"],
+                input=prompt,
                 cwd=str(self.project_path),
                 capture_output=True,
                 text=True,

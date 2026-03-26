@@ -142,3 +142,50 @@ class TestRunTests:
         (tmp_path / "package.json").write_text('{"scripts": {"build": "next build"}}')
         il = InnerLoop(str(tmp_path), verbose=False)
         assert il._has_npm_test_script() is False
+
+
+class TestRunSyntaxCheck:
+    """_run_syntax_check — Bug 3: não penalizar quando tsc local não está instalado."""
+
+    def test_pula_ts_sem_node_modules_tsc(self, tmp_path):
+        """tsconfig.json existe mas node_modules/.bin/tsc ausente → retorna None."""
+        (tmp_path / "tsconfig.json").write_text('{"compilerOptions": {}}')
+        il = InnerLoop(str(tmp_path), verbose=False)
+        result = il._run_syntax_check()
+        assert result is None
+
+    def test_pula_ts_sem_tsconfig(self, tmp_path):
+        """Sem tsconfig.json → não tenta checagem TypeScript → retorna None."""
+        il = InnerLoop(str(tmp_path), verbose=False)
+        result = il._run_syntax_check()
+        assert result is None
+
+    def test_ts_erro_sintaxe_com_tsc_local(self, tmp_path):
+        """Com tsc local instalado e erro de sintaxe → retorna dict de falha."""
+        (tmp_path / "tsconfig.json").write_text('{"compilerOptions": {}}')
+        tsc_bin = tmp_path / "node_modules" / ".bin"
+        tsc_bin.mkdir(parents=True)
+        (tsc_bin / "tsc").touch()
+
+        il = InnerLoop(str(tmp_path), verbose=False)
+        with patch("inner_loop.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=1, stdout="error TS1005", stderr="")
+            result = il._run_syntax_check()
+
+        assert result is not None
+        assert result["success"] is False
+        assert "TypeScript" in result["output"]
+
+    def test_ts_ok_com_tsc_local(self, tmp_path):
+        """Com tsc local instalado e sintaxe ok → retorna None."""
+        (tmp_path / "tsconfig.json").write_text('{"compilerOptions": {}}')
+        tsc_bin = tmp_path / "node_modules" / ".bin"
+        tsc_bin.mkdir(parents=True)
+        (tsc_bin / "tsc").touch()
+
+        il = InnerLoop(str(tmp_path), verbose=False)
+        with patch("inner_loop.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            result = il._run_syntax_check()
+
+        assert result is None

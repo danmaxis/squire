@@ -431,6 +431,21 @@ class TestCleanupGitState:
         with patch("squire.subprocess.run", side_effect=FileNotFoundError("git not found")):
             orch._cleanup_git_state()  # não deve lançar
 
+    def test_pula_limpeza_sem_commits(self):
+        """Repo sem commits (sem HEAD) — não deve tentar git reset/checkout."""
+        orch = make_squire()
+
+        status_result = MagicMock(returncode=0, stdout="?? src/index.ts\n", stderr="")
+        rev_parse_result = MagicMock(returncode=1, stdout="", stderr="")  # sem HEAD
+
+        with patch("squire.subprocess.run", side_effect=[status_result, rev_parse_result]) as mock_run:
+            orch._cleanup_git_state()
+
+        calls = [c.args[0] for c in mock_run.call_args_list]
+        assert ["git", "rev-parse", "--verify", "HEAD"] in calls
+        assert not any("checkout" in str(c) for c in calls)
+        assert not any("reset" in str(c) for c in calls)
+
     def test_cleanup_chamado_antes_de_run_homologation(self):
         """_cleanup_git_state deve ser chamado antes de _run_homologation em run()."""
         orch = make_squire()
