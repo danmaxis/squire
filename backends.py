@@ -37,6 +37,33 @@ _DEFAULT_SYSTEM_PROMPT = (
 # Delays para retry em falhas de rede (segundos)
 _HTTP_RETRY_DELAYS = [5, 10, 20]
 
+# Diretórios e extensões ignorados ao detectar arquivos tocados via git ls-files.
+# Previne que node_modules, dist etc. sejam incluídos no files_touched e
+# consequentemente enviados como conteúdo no prompt de homologação.
+_IGNORED_TREE_DIRS = frozenset({
+    "node_modules", "dist", "build", ".next", ".nuxt",
+    "__pycache__", ".venv", "venv", ".cache", ".tox",
+    "target",  # Rust/Java
+    "vendor",  # Go/PHP
+})
+_SOURCE_EXTENSIONS = frozenset({
+    ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
+    ".py", ".go", ".rs", ".java", ".kt", ".swift",
+    ".json", ".yaml", ".yml", ".toml", ".env",
+    ".html", ".css", ".scss",
+    ".sh", ".bash",
+    ".md", ".txt",
+})
+_SOURCE_NAMES = frozenset({"Dockerfile", "Makefile", ".gitignore", ".env.example", "go.sum"})
+
+
+def _is_source_file(rel_path: str) -> bool:
+    """Retorna True se o caminho relativo é um arquivo de código/config relevante."""
+    p = Path(rel_path)
+    if any(part in _IGNORED_TREE_DIRS for part in p.parts):
+        return False
+    return p.suffix in _SOURCE_EXTENSIONS or p.name in _SOURCE_NAMES
+
 # ── LLM global lock ────────────────────────────────────────────────
 # Lock de arquivo para garantir que apenas um processo chama o llama.cpp
 # por vez. Evita saturação de CPU quando múltiplas ferramentas rodam juntas
@@ -380,6 +407,9 @@ class AiderBackend(CodingBackend):
         - working-tree vs HEAD (modificados mas não staged)
         - staged vs HEAD (git add feito mas não commitado)
         - untracked (arquivos novos não adicionados ao git)
+
+        Filtra para arquivos de código/config relevantes — exclui node_modules,
+        dist e similares para não inflar o prompt de homologação.
         """
         files: list[str] = []
         try:
@@ -393,7 +423,7 @@ class AiderBackend(CodingBackend):
                     capture_output=True, text=True, timeout=15,
                 )
                 files.extend(f.strip() for f in proc.stdout.splitlines() if f.strip())
-            return list(dict.fromkeys(files))  # preserva ordem, deduplica
+            return [f for f in dict.fromkeys(files) if _is_source_file(f)]
         except Exception:
             return []
 
@@ -552,7 +582,7 @@ class OpenCodeBackend(CodingBackend):
         return BackendResult(files_touched=files_touched, raw_output=raw_output, agent_used=agent)
 
     def _git_diff_files(self, project_path: Path) -> list[str]:
-        """Mesmo mecanismo do AiderBackend."""
+        """Mesmo mecanismo do AiderBackend (com filtro de arquivos de código)."""
         try:
             proc = subprocess.run(
                 ["git", "diff", "--name-only", "HEAD"],
@@ -570,7 +600,7 @@ class OpenCodeBackend(CodingBackend):
                 timeout=15,
             )
             new_files = [f.strip() for f in proc2.stdout.splitlines() if f.strip()]
-            return list(dict.fromkeys(files + new_files))
+            return [f for f in dict.fromkeys(files + new_files) if _is_source_file(f)]
         except Exception:
             return []
 

@@ -158,6 +158,10 @@ Responda APENAS com JSON válido, sem markdown:
   "suggestions": ["melhoria opcional 1", "melhoria opcional 2"]
 }}"""
 
+    # Limites de segurança para evitar prompts gigantes (node_modules, dist, etc.)
+    _MAX_FILES_FOR_REVIEW = 20
+    _MAX_REVIEW_CONTENT_BYTES = 80_000  # ~80 KB de conteúdo de código
+
     def _read_files_for_review(self, files_touched: list[str]) -> str:
         """Lê o conteúdo dos arquivos modificados para incluir no prompt."""
         if not files_touched:
@@ -169,23 +173,37 @@ Responda APENAS com JSON válido, sem markdown:
         if not files_touched:
             return "\n\nNenhum arquivo foi modificado/criado nesta tentativa."
 
+        # Limitar número de arquivos para não inflar o prompt
+        if len(files_touched) > self._MAX_FILES_FOR_REVIEW:
+            files_touched = files_touched[:self._MAX_FILES_FOR_REVIEW]
+
         parts = ["\n\nArquivos modificados/detectados no repositório:"]
+        total_bytes = 0
         for rel_path in files_touched:
+            if total_bytes >= self._MAX_REVIEW_CONTENT_BYTES:
+                parts.append(f"\n(conteúdo truncado — limite de {self._MAX_REVIEW_CONTENT_BYTES // 1000}KB atingido)")
+                break
             full_path = self.project_path / rel_path
             try:
                 lines = full_path.read_text(encoding="utf-8").splitlines()
                 content = "\n".join(lines[:200])
                 if len(lines) > 200:
                     content += f"\n... (truncado — {len(lines)} linhas no total)"
-                parts.append(f"\n### {rel_path}\n```\n{content}\n```")
+                entry = f"\n### {rel_path}\n```\n{content}\n```"
+                total_bytes += len(entry.encode("utf-8"))
+                parts.append(entry)
             except Exception as e:
                 parts.append(f"\n### {rel_path}\n(erro ao ler: {e})")
 
         return "\n".join(parts)
 
     def _git_fallback_files(self) -> list[str]:
-        """Detecta arquivos modificados via git quando files_touched não foi populado."""
+        """Detecta arquivos modificados via git quando files_touched não foi populado.
+
+        Filtra para arquivos de código/config — exclui node_modules, dist etc.
+        """
         import subprocess
+        from backends import _is_source_file
         try:
             files: list[str] = []
             for cmd in (
@@ -196,7 +214,7 @@ Responda APENAS com JSON válido, sem markdown:
                 p = subprocess.run(cmd, cwd=str(self.project_path),
                                    capture_output=True, text=True, timeout=10)
                 files.extend(f.strip() for f in p.stdout.splitlines() if f.strip())
-            return list(dict.fromkeys(files))  # deduplica preservando ordem
+            return [f for f in dict.fromkeys(files) if _is_source_file(f)]
         except Exception:
             return []
 
