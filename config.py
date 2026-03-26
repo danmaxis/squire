@@ -11,8 +11,8 @@ from pathlib import Path
 
 # Raiz do estado persistente (volume Unraid montado na VM)
 STATE_ROOT = Path(os.getenv(
-    "ORCH_STATE_ROOT",
-    "/mnt/user/data/orchestrator"
+    "SQUIRE_STATE_ROOT",
+    "/mnt/user/data/squire"
 ))
 
 PROJECTS_DIR = STATE_ROOT / "projects"
@@ -25,50 +25,50 @@ RATE_FILE = STATE_ROOT / "rate.json"
 # ── LLM Local (Qwen via LiteLLM) ──────────────────────────────────
 
 LITELLM_BASE_URL = os.getenv(
-    "ORCH_LITELLM_URL",
+    "SQUIRE_LITELLM_URL",
     "http://192.168.50.24:4000/v1"
 )
 
 LITELLM_MODEL = os.getenv(
-    "ORCH_LITELLM_MODEL",
+    "SQUIRE_LITELLM_MODEL",
     "journal-synth"  # alias apontando pro Qwen3.5-35B-A3B
 )
 
-LITELLM_API_KEY = os.getenv("ORCH_LITELLM_KEY", "masterofpuppets")
+LITELLM_API_KEY = os.getenv("SQUIRE_LITELLM_KEY", "masterofpuppets")
 
 # Limites do inner loop
-INNER_LOOP_MAX_ATTEMPTS = int(os.getenv("ORCH_INNER_MAX_ATTEMPTS", "10"))
-INNER_LOOP_TIMEOUT_SECONDS = int(os.getenv("ORCH_INNER_TIMEOUT", "1200"))
+INNER_LOOP_MAX_ATTEMPTS = int(os.getenv("SQUIRE_INNER_MAX_ATTEMPTS", "10"))
+INNER_LOOP_TIMEOUT_SECONDS = int(os.getenv("SQUIRE_INNER_TIMEOUT", "1200"))
 
 # Backend de coding agent (litellm | aider | opencode)
-CODING_BACKEND = os.getenv("ORCH_CODING_BACKEND", "litellm")
-AIDER_BIN = os.getenv("ORCH_AIDER_BIN", "aider")
-OPENCODE_BIN = os.getenv("ORCH_OPENCODE_BIN", "opencode")
+CODING_BACKEND = os.getenv("SQUIRE_CODING_BACKEND", "litellm")
+AIDER_BIN = os.getenv("SQUIRE_AIDER_BIN", "aider")
+OPENCODE_BIN = os.getenv("SQUIRE_OPENCODE_BIN", "opencode")
 
 
 # ── Claude Code ────────────────────────────────────────────────────
 
 # Claude Code é invocado via subprocess na VM
-CLAUDE_CODE_BIN = os.getenv("ORCH_CLAUDE_BIN", "claude")
+CLAUDE_CODE_BIN = os.getenv("SQUIRE_CLAUDE_BIN", "claude")
 
 # Rate limiting
-CLAUDE_CODE_MAX_CALLS_PER_WINDOW = int(os.getenv("ORCH_CC_MAX_CALLS", "10"))
-CLAUDE_CODE_WINDOW_MINUTES = int(os.getenv("ORCH_CC_WINDOW_MIN", "30"))
+CLAUDE_CODE_MAX_CALLS_PER_WINDOW = int(os.getenv("SQUIRE_CC_MAX_CALLS", "10"))
+CLAUDE_CODE_WINDOW_MINUTES = int(os.getenv("SQUIRE_CC_WINDOW_MIN", "30"))
 
 # Rodadas máximas por task (cada rodada = inner loop até 10 + 1 homologação)
-MAX_HOMOLOGATION_ATTEMPTS = int(os.getenv("ORCH_MAX_HOMOLOG", "5"))
+MAX_HOMOLOGATION_ATTEMPTS = int(os.getenv("SQUIRE_MAX_HOMOLOG", "5"))
 
 # Quantas rejeições consecutivas com o mesmo padrão de erro disparam escalação imediata
-LOOP_DETECT_THRESHOLD = int(os.getenv("ORCH_LOOP_DETECT", "3"))
+LOOP_DETECT_THRESHOLD = int(os.getenv("SQUIRE_LOOP_DETECT", "3"))
 
 # Quantos ciclos consecutivos sem nenhum arquivo modificado disparam escalação
-NO_PROGRESS_THRESHOLD = int(os.getenv("ORCH_NO_PROGRESS", "3"))
+NO_PROGRESS_THRESHOLD = int(os.getenv("SQUIRE_NO_PROGRESS", "3"))
 
 
 # ── Session ────────────────────────────────────────────────────────
 
-SESSION_LOCK_TTL_MINUTES = int(os.getenv("ORCH_LOCK_TTL", "60"))
-HEARTBEAT_INTERVAL_SECONDS = int(os.getenv("ORCH_HEARTBEAT", "300"))  # 5 min
+SESSION_LOCK_TTL_MINUTES = int(os.getenv("SQUIRE_LOCK_TTL", "60"))
+HEARTBEAT_INTERVAL_SECONDS = int(os.getenv("SQUIRE_HEARTBEAT", "300"))  # 5 min
 
 
 # ── Helpers ────────────────────────────────────────────────────────

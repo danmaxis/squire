@@ -62,7 +62,7 @@ class AlertSeverity(str, Enum):
 class Actor(str, Enum):
     local_llm = "local_llm"
     claude_code = "claude_code"
-    orchestrator = "orchestrator"
+    squire = "squire"
     human = "human"
 
 
@@ -124,7 +124,7 @@ class HistoryEvent(BaseModel):
     task_id: Optional[str] = None
     attempt: Optional[int] = None
     summary: str = ""
-    actor: Actor = Actor.orchestrator
+    actor: Actor = Actor.squire
 
 
 class History(BaseModel):

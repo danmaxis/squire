@@ -12,9 +12,9 @@ Ciclo de vida:
 4. Ao final, libera lock e atualiza stats
 
 Uso:
-    python orchestrator.py <project-id>
-    python orchestrator.py <project-id> --resume   # retoma de crash
-    python orchestrator.py <project-id> --dry-run   # mostra o que faria
+    python squire.py <project-id>
+    python squire.py <project-id> --resume   # retoma de crash
+    python squire.py <project-id> --dry-run   # mostra o que faria
 """
 
 from __future__ import annotations
@@ -52,8 +52,8 @@ def log(msg: str, level: str = "info") -> None:
     print(f"[{ts}] {prefix.get(level, '→')} {msg}")
 
 
-class Orchestrator:
-    """Loop principal do orquestrador."""
+class Squire:
+    """Loop principal do squire."""
 
     def __init__(self, project_id: str, dry_run: bool = False, verbose: bool = True):
         self.project_id = project_id
@@ -108,8 +108,7 @@ class Orchestrator:
     def _cleanup_git_state(self) -> None:
         """
         Garante que o working tree do projeto está limpo antes de rodar o aider.
-        Se houver arquivos sujos (modified, staged, deleted), executa git checkout -- .
-        para restaurar o estado do último commit.
+        Limpa tanto arquivos staged quanto modificados no working tree.
         """
         repo = self.project.repo_path
         try:
@@ -124,6 +123,12 @@ class Orchestrator:
             if not dirty:
                 return  # working tree limpo, nada a fazer
             log(f"Git state sujo detectado ({len(dirty.splitlines())} arquivo(s)) — limpando", "warn")
+            # Primeiro: unstage arquivos staged (git reset HEAD não falha se não há nada staged)
+            subprocess.run(
+                ["git", "reset", "HEAD", "--", "."],
+                cwd=repo, capture_output=True, text=True, timeout=10,
+            )
+            # Depois: restaurar working tree para HEAD
             cleanup = subprocess.run(
                 ["git", "checkout", "--", "."],
                 cwd=repo, capture_output=True, text=True, timeout=10,
@@ -168,7 +173,7 @@ class Orchestrator:
 
     def _record_event(self, event_type: EventType, task_id: str = None,
                       attempt: int = None, summary: str = "",
-                      actor: Actor = Actor.orchestrator):
+                      actor: Actor = Actor.squire):
         ckpt.append_event(self.project_id, HistoryEvent(
             type=event_type,
             task_id=task_id,
@@ -391,7 +396,7 @@ class Orchestrator:
                 log(f"[AUTO-APPROVED] skip_homologation=True", "ok")
                 self._record_event(
                     EventType.homologation_approved, task.id, rodada,
-                    "Auto-aprovado: skip_homologation=True", Actor.orchestrator,
+                    "Auto-aprovado: skip_homologation=True", Actor.squire,
                 )
                 task.homologation_result = "approved"
                 return True
@@ -660,12 +665,12 @@ def main():
     parser.add_argument("--quiet", action="store_true", help="Suprime preview de prompts/respostas")
     args = parser.parse_args()
 
-    orchestrator = Orchestrator(
+    squire = Squire(
         project_id=args.project_id,
         dry_run=args.dry_run,
         verbose=not args.quiet,
     )
-    orchestrator.run()
+    squire.run()
 
 
 if __name__ == "__main__":

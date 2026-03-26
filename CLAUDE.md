@@ -1,11 +1,11 @@
-# CLAUDE.md — Orchestrator Project Briefing
+# CLAUDE.md — Squire Project Briefing
 
 Este arquivo é o briefing completo do projeto para o Claude Code.
 Leia integralmente antes de qualquer ação.
 
 ## Visão geral
 
-Este projeto implementa um **orquestrador** que coordena dois tiers de LLM
+Este projeto implementa um **squire** que coordena dois tiers de LLM
 para executar projetos de software de forma semi-autônoma:
 
 - **Tier 1 (execução)**: LLM local (Qwen) faz implementação, refatoração e
@@ -30,7 +30,7 @@ arquivos JSON do filesystem. É o projeto se observando nascer.
 
 ### VM — Ai-Debian
 - Roda no Zordon como VM Debian
-- É onde o Claude Code opera e onde o orquestrador executa
+- É onde o Claude Code opera e onde o squire executa
 - Tem acesso ao filesystem do Unraid via mount
 
 ### LLM local — Qwen via LiteLLM
@@ -43,8 +43,8 @@ arquivos JSON do filesystem. É o projeto se observando nascer.
 
 ### Filesystem de estado
 ```
-/mnt/user/data/orchestrator/          ← raiz do estado persistente
-├── session.lock                      ← lock global do orquestrador
+/mnt/user/data/squire/                ← raiz do estado persistente
+├── session.lock                      ← lock global do squire
 ├── rate.json                         ← budget diário
 ├── alerts.json                       ← alertas ativos
 ├── global-stats.json                 ← métricas agregadas
@@ -59,18 +59,18 @@ arquivos JSON do filesystem. É o projeto se observando nascer.
 │       └── ...
 ```
 
-Os JSONs são o **contrato** entre o orquestrador e o dashboard.
+Os JSONs são o **contrato** entre o squire e o dashboard.
 O dashboard é **read-only** — só lê esses arquivos via polling a cada 30s.
 
 ### Serviços existentes no Zordon (Docker)
 Já estão rodando e podem ser usados pelos projetos:
-- **PostgreSQL** — bancos/schemas dedicados por projeto (o orquestrador gerencia pra não colidir)
+- **PostgreSQL** — bancos/schemas dedicados por projeto (o squire gerencia pra não colidir)
 - **Qdrant** — vector search
 - **Redis** — cache (se necessário)
 - **Grafana** — dashboards de infra
 - **Cloudflare Tunnel** — expõe serviços via `*.danmaxis.dev.br`
 - **Syncthing** — sync de arquivos
-- **n8n** — workflow automation (usado pelo sistema de journal, não pelo orquestrador)
+- **n8n** — workflow automation (usado pelo sistema de journal, não pelo squire)
 
 ### O que NÃO fazer no Unraid
 > **REGRA CRÍTICA**: O Claude Code NÃO deve criar, modificar ou deletar
@@ -78,7 +78,7 @@ Já estão rodando e podem ser usados pelos projetos:
 > container do dashboard Next.js), descreva o que precisa (imagem, volumes,
 > portas, env vars) e peça ao operador humano (Danilo) para criar.
 
-## Arquitetura do orquestrador
+## Arquitetura do squire
 
 ### Fluxo principal
 ```
@@ -96,7 +96,7 @@ Já estão rodando e podem ser usados pelos projetos:
 ```
 
 ### Módulos do código
-- `orchestrator.py` — loop principal, ponto de entrada CLI
+- `squire.py` — loop principal, ponto de entrada CLI
 - `models.py` — schemas Pydantic v2 (checkpoint, tasks, alerts, etc.)
 - `checkpoint.py` — leitura/escrita atômica de estado + lock management
 - `inner_loop.py` — interface com LLM local via LiteLLM HTTP API
@@ -118,7 +118,7 @@ Escrita atômica: temp file → `os.replace()` (atômico no mesmo filesystem).
 - **Máximo**: 10 chamadas ao Claude Code a cada 30 minutos
 - Se exceder, o orquestrador **pausa** e aguarda a janela resetar
 - O LLM local continua trabalhando independente do rate limit
-- Configurável via env vars: `ORCH_CC_MAX_CALLS`, `ORCH_CC_WINDOW_MIN`
+- Configurável via env vars: `SQUIRE_CC_MAX_CALLS`, `SQUIRE_CC_WINDOW_MIN`
 
 ### Escalação técnica vs. homologação
 São duas interações diferentes com o Claude Code:
@@ -146,7 +146,7 @@ São duas interações diferentes com o Claude Code:
 ### Fonte de dados
 O dashboard lê os JSONs do filesystem. Em dev, pode apontar pra um
 diretório local com dados de exemplo. Em produção, monta o volume
-`/mnt/user/data/orchestrator/` (read-only).
+`/mnt/user/data/squire/` (read-only).
 
 ### Tasks do projeto
 Ver `projects/orchestrator-dashboard/tasks.json` para o backlog completo.
@@ -218,36 +218,36 @@ orchestrator-dashboard/
 
 ## Variáveis de ambiente
 
-### Orquestrador (Python)
+### Squire (Python)
 ```bash
-ORCH_STATE_ROOT=/mnt/user/data/orchestrator
-ORCH_LITELLM_URL=http://192.168.50.24:4000/v1
-ORCH_LITELLM_MODEL=journal-synth
-ORCH_LITELLM_KEY=sk-local
-ORCH_INNER_MAX_ATTEMPTS=10
-ORCH_INNER_TIMEOUT=300
-ORCH_CLAUDE_BIN=claude
-ORCH_CC_MAX_CALLS=10
-ORCH_CC_WINDOW_MIN=30
-ORCH_MAX_HOMOLOG=3
-ORCH_LOCK_TTL=60
-ORCH_HEARTBEAT=300
+SQUIRE_STATE_ROOT=/mnt/user/data/squire
+SQUIRE_LITELLM_URL=http://192.168.50.24:4000/v1
+SQUIRE_LITELLM_MODEL=journal-synth
+SQUIRE_LITELLM_KEY=sk-local
+SQUIRE_INNER_MAX_ATTEMPTS=10
+SQUIRE_INNER_TIMEOUT=300
+SQUIRE_CLAUDE_BIN=claude
+SQUIRE_CC_MAX_CALLS=10
+SQUIRE_CC_WINDOW_MIN=30
+SQUIRE_MAX_HOMOLOG=3
+SQUIRE_LOCK_TTL=60
+SQUIRE_HEARTBEAT=300
 ```
 
 ### Dashboard (Next.js)
 ```bash
-ORCHESTRATOR_DATA_PATH=/mnt/user/data/orchestrator
+ORCHESTRATOR_DATA_PATH=/mnt/user/data/squire
 NEXT_PUBLIC_REFRESH_INTERVAL=30000
 ```
 
 ## Como executar
 
-### Orquestrador
+### Squire
 ```bash
-cd /caminho/do/orchestrator
-python orchestrator.py orchestrator-dashboard          # execução normal
-python orchestrator.py orchestrator-dashboard --dry-run # simula sem executar
-python orchestrator.py orchestrator-dashboard --resume  # retoma de crash
+cd /caminho/do/squire
+python squire.py orchestrator-dashboard          # execução normal
+python squire.py orchestrator-dashboard --dry-run # simula sem executar
+python squire.py orchestrator-dashboard --resume  # retoma de crash
 ```
 
 ### Dashboard (dev)
@@ -263,14 +263,14 @@ docker build -t orchestrator-dashboard .
 # Pedir ao Danilo para criar o container no Unraid com:
 #   - Imagem: orchestrator-dashboard
 #   - Porta: 3100:3000
-#   - Volume: /mnt/user/data/orchestrator:/data:ro
+#   - Volume: /mnt/user/data/squire:/data:ro
 #   - Env: ORCHESTRATOR_DATA_PATH=/data
 ```
 
 ## Notas para o Claude Code
 
 1. **Você é o tech lead**. Planeja, revisa, e decide. O trabalho braçal de
-   implementação vai pro LLM local via inner loop.
+   implementação vai pro LLM local via inner loop do squire.
 
 2. **Não assuma o que não está escrito**. Se algo não está neste arquivo,
    pergunte ao Danilo antes de inventar.

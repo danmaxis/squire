@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# orch — CLI wrapper para o orquestrador
-# Uso: orch <comando> [projeto] [opções]
+# squire — CLI wrapper para o squire
+# Uso: squire <comando> [projeto] [opções]
 
 set -euo pipefail
 
 # Resolve o diretório real do script (segue symlinks)
-ORCH_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
-ORCH_VENV="$ORCH_DIR/.venv/bin/python"
-ORCH_STATE_ROOT="${ORCH_STATE_ROOT:-/home/ai-debian/orchestrator-state}"
-ORCH_LOG="/tmp/orch.log"
-LOCK_FILE="$ORCH_STATE_ROOT/session.lock"
+SQUIRE_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+SQUIRE_VENV="$SQUIRE_DIR/.venv/bin/python"
+SQUIRE_STATE_ROOT="${SQUIRE_STATE_ROOT:-/home/ai-debian/squire-state}"
+SQUIRE_LOG="/tmp/squire.log"
+LOCK_FILE="$SQUIRE_STATE_ROOT/session.lock"
 
 # ── Cores ──────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -23,7 +23,7 @@ bold()  { echo -e "${BOLD}$*${RESET}"; }
 
 # ── Helpers ────────────────────────────────────────────────────────
 list_projects() {
-    ls "$ORCH_STATE_ROOT/projects/" 2>/dev/null || echo "(nenhum projeto encontrado)"
+    ls "$SQUIRE_STATE_ROOT/projects/" 2>/dev/null || echo "(nenhum projeto encontrado)"
 }
 
 check_lock() {
@@ -31,7 +31,7 @@ check_lock() {
         local pid
         pid=$(python3 -c "import json; d=json.load(open('$LOCK_FILE')); print(d.get('pid', 0))" 2>/dev/null || echo 0)
         if [[ "$pid" != "0" ]] && kill -0 "$pid" 2>/dev/null; then
-            warn "Sessão ativa (PID $pid). Use 'orch kill' para encerrar."
+            warn "Sessão ativa (PID $pid). Use 'squire kill' para encerrar."
             return 1
         else
             warn "Lock residual encontrado (processo morto). Limpando..."
@@ -41,10 +41,10 @@ check_lock() {
     return 0
 }
 
-run_orch() {
+run_squire() {
     local project="$1"; shift
-    ORCH_STATE_ROOT="$ORCH_STATE_ROOT" \
-        "$ORCH_VENV" -u "$ORCH_DIR/orchestrator.py" "$project" "$@"
+    SQUIRE_STATE_ROOT="$SQUIRE_STATE_ROOT" \
+        "$SQUIRE_VENV" -u "$SQUIRE_DIR/squire.py" "$project" "$@"
 }
 
 # ── Comandos ───────────────────────────────────────────────────────
@@ -55,8 +55,8 @@ cmd_run() {
         error "Projeto obrigatório. Projetos disponíveis:"; list_projects; exit 1
     fi
     check_lock || exit 1
-    info "Iniciando orquestrador para '$project'..."
-    run_orch "$project" "$@"
+    info "Iniciando squire para '$project'..."
+    run_squire "$project" "$@"
 }
 
 cmd_resume() {
@@ -76,16 +76,16 @@ cmd_resume() {
     done
 
     if $bg; then
-        info "Retomando '$project' em background → $ORCH_LOG"
-        ORCH_STATE_ROOT="$ORCH_STATE_ROOT" \
-            nohup "$ORCH_VENV" -u "$ORCH_DIR/orchestrator.py" "$project" --resume "${extra[@]+"${extra[@]}"}" \
-            > "$ORCH_LOG" 2>&1 &
+        info "Retomando '$project' em background → $SQUIRE_LOG"
+        SQUIRE_STATE_ROOT="$SQUIRE_STATE_ROOT" \
+            nohup "$SQUIRE_VENV" -u "$SQUIRE_DIR/squire.py" "$project" --resume "${extra[@]+"${extra[@]}"}" \
+            > "$SQUIRE_LOG" 2>&1 &
         local pid=$!
         ok "Rodando com PID $pid"
-        echo -e "  Acompanhe com: ${CYAN}orch log${RESET}"
+        echo -e "  Acompanhe com: ${CYAN}squire log${RESET}"
     else
         info "Retomando '$project' do checkpoint..."
-        run_orch "$project" --resume "${extra[@]+"${extra[@]}"}"
+        run_squire "$project" --resume "${extra[@]+"${extra[@]}"}"
     fi
 }
 
@@ -95,13 +95,13 @@ cmd_bg() {
         error "Projeto obrigatório. Projetos disponíveis:"; list_projects; exit 1
     fi
     check_lock || exit 1
-    info "Iniciando '$project' em background → $ORCH_LOG"
-    ORCH_STATE_ROOT="$ORCH_STATE_ROOT" \
-        nohup "$ORCH_VENV" -u "$ORCH_DIR/orchestrator.py" "$project" "$@" \
-        > "$ORCH_LOG" 2>&1 &
+    info "Iniciando '$project' em background → $SQUIRE_LOG"
+    SQUIRE_STATE_ROOT="$SQUIRE_STATE_ROOT" \
+        nohup "$SQUIRE_VENV" -u "$SQUIRE_DIR/squire.py" "$project" "$@" \
+        > "$SQUIRE_LOG" 2>&1 &
     local pid=$!
     ok "Rodando com PID $pid"
-    echo -e "  Acompanhe com: ${CYAN}orch log${RESET}"
+    echo -e "  Acompanhe com: ${CYAN}squire log${RESET}"
 }
 
 cmd_dry() {
@@ -110,18 +110,18 @@ cmd_dry() {
         error "Projeto obrigatório. Projetos disponíveis:"; list_projects; exit 1
     fi
     info "Dry-run para '$project' (sem execução real)..."
-    run_orch "$project" --dry-run "$@"
+    run_squire "$project" --dry-run "$@"
 }
 
 cmd_log() {
-    if [[ ! -f "$ORCH_LOG" ]]; then
-        error "Nenhum log encontrado em $ORCH_LOG"; exit 1
+    if [[ ! -f "$SQUIRE_LOG" ]]; then
+        error "Nenhum log encontrado em $SQUIRE_LOG"; exit 1
     fi
-    tail -f "$ORCH_LOG"
+    tail -f "$SQUIRE_LOG"
 }
 
 cmd_status() {
-    bold "=== Estado do orquestrador ==="
+    bold "=== Estado do squire ==="
     echo ""
 
     # Lock
@@ -140,7 +140,7 @@ cmd_status() {
 
     echo ""
     bold "=== Projetos ==="
-    for proj_dir in "$ORCH_STATE_ROOT/projects"/*/; do
+    for proj_dir in "$SQUIRE_STATE_ROOT/projects"/*/; do
         local proj
         proj=$(basename "$proj_dir")
         local status tasks_done tasks_total
@@ -171,7 +171,7 @@ else:
     bold "=== Rate limit ==="
     python3 -c "
 import json, pathlib, datetime
-for proj_dir in pathlib.Path('$ORCH_STATE_ROOT/projects').iterdir():
+for proj_dir in pathlib.Path('$SQUIRE_STATE_ROOT/projects').iterdir():
     cp = proj_dir / 'checkpoint.json'
     if not cp.exists(): continue
     d = json.loads(cp.read_text())
@@ -223,7 +223,7 @@ cmd_unblock() {
     if [[ -z "$project" ]]; then
         error "Projeto obrigatório. Projetos disponíveis:"; list_projects; exit 1
     fi
-    local tasks_file="$ORCH_STATE_ROOT/projects/$project/tasks.json"
+    local tasks_file="$SQUIRE_STATE_ROOT/projects/$project/tasks.json"
     if [[ ! -f "$tasks_file" ]]; then
         error "tasks.json não encontrado para '$project'"; exit 1
     fi
@@ -261,7 +261,7 @@ cmd_reset() {
         error "Projeto obrigatório. Projetos disponíveis:"; list_projects; exit 1
     fi
 
-    local proj_dir="$ORCH_STATE_ROOT/projects/$project"
+    local proj_dir="$SQUIRE_STATE_ROOT/projects/$project"
     local project_file="$proj_dir/project.json"
     local tasks_file="$proj_dir/tasks.json"
 
@@ -298,9 +298,31 @@ tasks_file.write_text(json.dumps(data, ensure_ascii=False, indent=2))
 print(f"\n{count} task(s) resetada(s).")
 PYEOF
 
-    # Limpar estado git do repo
+    # Resetar cursor no checkpoint (evita estado inconsistente após reset de tasks)
+    local checkpoint_file="$proj_dir/checkpoint.json"
+    if [[ -f "$checkpoint_file" ]]; then
+        python3 - "$checkpoint_file" << 'PYEOF'
+import json, sys
+from pathlib import Path
+
+cp_file = Path(sys.argv[1])
+data = json.loads(cp_file.read_text())
+cursor = data.get("cursor", {})
+cursor["current_task_id"] = None
+cursor["current_subtask_id"] = None
+cursor["step"] = "planning"
+cursor["attempt"] = 0
+cursor["homologation_attempt"] = 0
+data["cursor"] = cursor
+cp_file.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+print("  ✓ checkpoint cursor resetado")
+PYEOF
+    fi
+
+    # Limpar estado git do repo (staged + working tree)
     if [[ -n "$repo_path" ]] && [[ -d "$repo_path/.git" ]]; then
         warn "Limpando git state em $repo_path"
+        git -C "$repo_path" reset HEAD -- . 2>/dev/null || true
         git -C "$repo_path" checkout -- . 2>/dev/null \
             && ok "git checkout -- . OK" \
             || warn "Nada para limpar no git (working tree já limpo)"
@@ -312,7 +334,7 @@ PYEOF
 cmd_new() {
     local project="${1:-}"; shift || true
     if [[ -z "$project" ]] || [[ "$project" == --* ]]; then
-        error "Uso: orch new <project-id> [--repo <path>] [--name <nome>] [--stack <csv>] [--backend aider|litellm]"
+        error "Uso: squire new <project-id> [--repo <path>] [--name <nome>] [--stack <csv>] [--backend aider|litellm]"
         exit 1
     fi
 
@@ -332,7 +354,7 @@ cmd_new() {
     [[ -z "$name" ]]      && name="$project"
     [[ -z "$repo_path" ]] && repo_path="/home/ai-debian/projects/$project"
 
-    local proj_dir="$ORCH_STATE_ROOT/projects/$project"
+    local proj_dir="$SQUIRE_STATE_ROOT/projects/$project"
     if [[ -d "$proj_dir" ]]; then
         error "Projeto '$project' já existe em $proj_dir"
         exit 1
@@ -392,7 +414,7 @@ TASKEOF
     echo -e "  ${BOLD}Próximos passos:${RESET}"
     echo -e "  1. Edite as tasks:   ${CYAN}$editor $proj_dir/tasks.json${RESET}"
     echo -e "  2. Crie o repo:      ${CYAN}mkdir -p $repo_path && cd $repo_path && git init${RESET}"
-    echo -e "  3. Execute:          ${CYAN}orch run $project${RESET}"
+    echo -e "  3. Execute:          ${CYAN}squire run $project${RESET}"
     echo ""
     echo -e "  Ajuste a descrição do projeto:"
     echo -e "  ${CYAN}$editor $proj_dir/project.json${RESET}"
@@ -404,36 +426,36 @@ cmd_projects() {
 }
 
 cmd_help() {
-    bold "orch — orquestrador CLI"
+    bold "squire — CLI"
     echo ""
-    echo -e "  ${CYAN}orch run${RESET} <projeto>             Executa em foreground"
-    echo -e "  ${CYAN}orch run${RESET} <projeto> --quiet    Executa sem preview de prompts"
-    echo -e "  ${CYAN}orch bg${RESET}  <projeto>             Executa em background (nohup)"
-    echo -e "  ${CYAN}orch resume${RESET} <projeto>             Retoma do checkpoint em foreground"
-    echo -e "  ${CYAN}orch resume${RESET} <projeto> bg          Retoma em background"
-    echo -e "  ${CYAN}orch resume${RESET} <projeto> [bg] --quiet  Retoma sem preview de prompts"
-    echo -e "  ${CYAN}orch dry${RESET} <projeto>             Dry-run (sem execução real)"
-    echo -e "  ${CYAN}orch log${RESET}                 Acompanha o log do background"
-    echo -e "  ${CYAN}orch status${RESET}              Mostra estado de sessão/projetos/rate-limit"
-    echo -e "  ${CYAN}orch kill${RESET}                Encerra o processo da sessão ativa e remove o lock"
-    echo -e "  ${CYAN}orch unlock${RESET}              Remove o session.lock residual deixado por crash (não mata processo)"
-    echo -e "  ${CYAN}orch unblock${RESET} <projeto> [id...]"
+    echo -e "  ${CYAN}squire run${RESET} <projeto>             Executa em foreground"
+    echo -e "  ${CYAN}squire run${RESET} <projeto> --quiet    Executa sem preview de prompts"
+    echo -e "  ${CYAN}squire bg${RESET}  <projeto>             Executa em background (nohup)"
+    echo -e "  ${CYAN}squire resume${RESET} <projeto>             Retoma do checkpoint em foreground"
+    echo -e "  ${CYAN}squire resume${RESET} <projeto> bg          Retoma em background"
+    echo -e "  ${CYAN}squire resume${RESET} <projeto> [bg] --quiet  Retoma sem preview de prompts"
+    echo -e "  ${CYAN}squire dry${RESET} <projeto>             Dry-run (sem execução real)"
+    echo -e "  ${CYAN}squire log${RESET}                 Acompanha o log do background"
+    echo -e "  ${CYAN}squire status${RESET}              Mostra estado de sessão/projetos/rate-limit"
+    echo -e "  ${CYAN}squire kill${RESET}                Encerra o processo da sessão ativa e remove o lock"
+    echo -e "  ${CYAN}squire unlock${RESET}              Remove o session.lock residual deixado por crash (não mata processo)"
+    echo -e "  ${CYAN}squire unblock${RESET} <projeto> [id...]"
     echo -e "                           Retoma tasks com status 'blocked' → pending (mantém o código no repo)"
-    echo -e "  ${CYAN}orch reset${RESET}   <projeto> [id...]"
+    echo -e "  ${CYAN}squire reset${RESET}   <projeto> [id...]"
     echo -e "                           Reinicia tasks do zero → pending + limpa o working tree git (descarta código não-commitado)"
-    echo -e "  ${CYAN}orch projects${RESET}            Lista projetos disponíveis"
-    echo -e "  ${CYAN}orch new${RESET} <projeto>              Cria projeto novo"
-    echo -e "  ${CYAN}orch new${RESET} <projeto> --repo <path> --name <nome> --stack <csv> --backend <aider|litellm>"
+    echo -e "  ${CYAN}squire projects${RESET}            Lista projetos disponíveis"
+    echo -e "  ${CYAN}squire new${RESET} <projeto>              Cria projeto novo"
+    echo -e "  ${CYAN}squire new${RESET} <projeto> --repo <path> --name <nome> --stack <csv> --backend <aider|litellm>"
     echo ""
-    echo -e "  Variável de ambiente: ${YELLOW}ORCH_STATE_ROOT${RESET} (padrão: $ORCH_STATE_ROOT)"
+    echo -e "  Variável de ambiente: ${YELLOW}SQUIRE_STATE_ROOT${RESET} (padrão: $SQUIRE_STATE_ROOT)"
     echo ""
     echo -e "  Exemplos:"
-    echo -e "    orch new meu-app --repo /home/ai-debian/projects/meu-app --stack typescript,nextjs"
-    echo -e "    orch run orchestrator-dashboard"
-    echo -e "    orch bg  orchestrator-dashboard"
-    echo -e "    orch log"
-    echo -e "    orch status"
-    echo -e "    orch kill"
+    echo -e "    squire new meu-app --repo /home/ai-debian/projects/meu-app --stack typescript,nextjs"
+    echo -e "    squire run orchestrator-dashboard"
+    echo -e "    squire bg  orchestrator-dashboard"
+    echo -e "    squire log"
+    echo -e "    squire status"
+    echo -e "    squire kill"
 }
 
 # ── Dispatcher ─────────────────────────────────────────────────────

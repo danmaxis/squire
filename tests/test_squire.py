@@ -1,4 +1,4 @@
-"""Testes unitários para o Orchestrator — foco no ciclo de rodadas e productive wait."""
+"""Testes unitários para o Squire — foco no ciclo de rodadas e productive wait."""
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch, call
@@ -31,11 +31,11 @@ def make_task(**kwargs) -> Task:
     return Task(**defaults)
 
 
-def make_orchestrator(can_call_side_effect=None):
+def make_squire(can_call_side_effect=None):
     """
-    Cria um Orchestrator com todas as dependências externas mockadas.
+    Cria um Squire com todas as dependências externas mockadas.
     """
-    from orchestrator import Orchestrator
+    from squire import Squire
 
     project = Project(
         id="test-proj", name="Test Project", description="Test",
@@ -46,15 +46,15 @@ def make_orchestrator(can_call_side_effect=None):
     stats = GlobalStats()
 
     with (
-        patch("orchestrator.ckpt.load_project", return_value=project),
-        patch("orchestrator.ckpt.load_tasks", return_value=task_list),
-        patch("orchestrator.ckpt.load_checkpoint", return_value=cp),
-        patch("orchestrator.ckpt.load_stats", return_value=stats),
-        patch("orchestrator.InnerLoop"),
-        patch("orchestrator.Homologator"),
-        patch("orchestrator.TechnicalEscalation"),
+        patch("squire.ckpt.load_project", return_value=project),
+        patch("squire.ckpt.load_tasks", return_value=task_list),
+        patch("squire.ckpt.load_checkpoint", return_value=cp),
+        patch("squire.ckpt.load_stats", return_value=stats),
+        patch("squire.InnerLoop"),
+        patch("squire.Homologator"),
+        patch("squire.TechnicalEscalation"),
     ):
-        orch = Orchestrator("test-proj", dry_run=False, verbose=False)
+        orch = Squire("test-proj", dry_run=False, verbose=False)
 
     # Substituir rate_limiter por mock controlável
     orch.rate_limiter = MagicMock()
@@ -86,7 +86,7 @@ def make_homolog_result(approved=True, feedback="ok", summary="", fix_suggestion
 class TestWaitProductively:
     def test_nao_chama_inner_loop_quando_pode_chamar(self):
         """Se can_call() é True, não entra no loop produtivo."""
-        orch = make_orchestrator(can_call_side_effect=[True])
+        orch = make_squire(can_call_side_effect=[True])
         task = make_task()
         orch._run_inner_loop = MagicMock(return_value=True)
 
@@ -96,7 +96,7 @@ class TestWaitProductively:
 
     def test_chama_inner_loop_uma_vez_durante_rate_limit(self):
         """Se can_call() retorna False uma vez e depois True, inner loop roda uma vez."""
-        orch = make_orchestrator(can_call_side_effect=[False, True])
+        orch = make_squire(can_call_side_effect=[False, True])
         task = make_task()
         orch._run_inner_loop = MagicMock(return_value=True)
 
@@ -108,7 +108,7 @@ class TestWaitProductively:
 
     def test_chama_inner_loop_multiplas_vezes_se_rate_limit_persiste(self):
         """Enquanto can_call() retorna False, continua rodando o inner loop."""
-        orch = make_orchestrator(can_call_side_effect=[False, False, False, True])
+        orch = make_squire(can_call_side_effect=[False, False, False, True])
         task = make_task()
         orch._run_inner_loop = MagicMock(return_value=True)
 
@@ -120,7 +120,7 @@ class TestWaitProductively:
 
     def test_reseta_attempts_antes_de_cada_inner_loop(self):
         """task.attempts deve ser zerado antes de cada rodada do inner loop."""
-        orch = make_orchestrator(can_call_side_effect=[False, False, True])
+        orch = make_squire(can_call_side_effect=[False, False, True])
         task = make_task(attempts=7)
         attempts_before_call = []
 
@@ -137,7 +137,7 @@ class TestWaitProductively:
 
     def test_feedback_vazio_funciona(self):
         """Feedback vazio não causa erro."""
-        orch = make_orchestrator(can_call_side_effect=[False, True])
+        orch = make_squire(can_call_side_effect=[False, True])
         task = make_task()
         orch._run_inner_loop = MagicMock(return_value=False)
 
@@ -158,12 +158,12 @@ class TestRunHomologation:
 
     def test_aprovado_na_primeira_rodada(self):
         """Inner loop roda, homologação aprova → True."""
-        orch = make_orchestrator()
+        orch = make_squire()
         task = make_task()
         orch._run_inner_loop = MagicMock(return_value=True)
         orch.homologator.review.return_value = make_homolog_result(approved=True)
 
-        with patch("orchestrator.time") as mock_time:
+        with patch("squire.time") as mock_time:
             result = orch._run_homologation(task)
 
         assert result is True
@@ -172,14 +172,14 @@ class TestRunHomologation:
 
     def test_inner_loop_chamado_no_inicio_de_cada_rodada(self):
         """Inner loop deve ser chamado uma vez por rodada."""
-        orch = make_orchestrator()
+        orch = make_squire()
         task = make_task(max_homologation_attempts=3)
         orch._run_inner_loop = MagicMock(return_value=False)  # testes sempre falham
         orch.homologator.review.return_value = make_homolog_result(
             approved=False, feedback="precisa melhorar"
         )
 
-        with patch("orchestrator.time"):
+        with patch("squire.time"):
             orch._run_homologation(task)
 
         # 3 rodadas → 3 chamadas ao inner loop (uma por rodada)
@@ -187,12 +187,12 @@ class TestRunHomologation:
 
     def test_homologa_mesmo_com_testes_falhando(self):
         """Inner loop retorna False (testes falham) → homologação ainda ocorre."""
-        orch = make_orchestrator()
+        orch = make_squire()
         task = make_task()
         orch._run_inner_loop = MagicMock(return_value=False)  # testes falham
         orch.homologator.review.return_value = make_homolog_result(approved=True)
 
-        with patch("orchestrator.time"):
+        with patch("squire.time"):
             result = orch._run_homologation(task)
 
         assert result is True
@@ -200,14 +200,14 @@ class TestRunHomologation:
 
     def test_rejeitado_todas_rodadas_retorna_false(self):
         """Esgotando todas as rodadas sem aprovação → False."""
-        orch = make_orchestrator()
+        orch = make_squire()
         task = make_task(max_homologation_attempts=2)
         orch._run_inner_loop = MagicMock(return_value=True)
         orch.homologator.review.return_value = make_homolog_result(
             approved=False, feedback="não satisfaz"
         )
 
-        with patch("orchestrator.time"):
+        with patch("squire.time"):
             result = orch._run_homologation(task)
 
         assert result is False
@@ -216,7 +216,7 @@ class TestRunHomologation:
 
     def test_feedback_da_rejeicao_usado_na_rodada_seguinte(self):
         """Feedback da rejeição deve chegar como homologation_feedback no inner loop seguinte."""
-        orch = make_orchestrator()
+        orch = make_squire()
         task = make_task(max_homologation_attempts=2)
 
         inner_loop_feedbacks = []
@@ -231,7 +231,7 @@ class TestRunHomologation:
             make_homolog_result(approved=True),
         ]
 
-        with patch("orchestrator.time"):
+        with patch("squire.time"):
             orch._run_homologation(task)
 
         # Rodada 1: sem feedback anterior (ainda vazio)
@@ -241,7 +241,7 @@ class TestRunHomologation:
 
     def test_productive_wait_chamado_antes_de_cada_homologacao(self):
         """_wait_productively deve ser chamado antes de cada chamada ao homologador."""
-        orch = make_orchestrator()
+        orch = make_squire()
         task = make_task(max_homologation_attempts=3)
         orch._wait_productively = MagicMock()
         orch._run_inner_loop = MagicMock(return_value=True)
@@ -251,7 +251,7 @@ class TestRunHomologation:
             make_homolog_result(approved=True),
         ]
 
-        with patch("orchestrator.time"):
+        with patch("squire.time"):
             orch._run_homologation(task)
 
         # 3 rodadas → 3 chamadas ao _wait_productively
@@ -259,7 +259,7 @@ class TestRunHomologation:
 
     def test_aprovado_na_terceira_rodada(self):
         """Aprovação na terceira rodada → True, tentativas anteriores foram esgotadas."""
-        orch = make_orchestrator()
+        orch = make_squire()
         task = make_task(max_homologation_attempts=5)
         orch._run_inner_loop = MagicMock(return_value=False)
         orch.homologator.review.side_effect = [
@@ -268,7 +268,7 @@ class TestRunHomologation:
             make_homolog_result(approved=True),
         ]
 
-        with patch("orchestrator.time"):
+        with patch("squire.time"):
             result = orch._run_homologation(task)
 
         assert result is True
@@ -277,7 +277,7 @@ class TestRunHomologation:
 
     def test_attempts_resetado_no_inicio_de_cada_rodada(self):
         """task.attempts deve ser zerado no início de cada rodada."""
-        orch = make_orchestrator()
+        orch = make_squire()
         task = make_task(max_homologation_attempts=2)
         attempts_at_start = []
 
@@ -291,14 +291,14 @@ class TestRunHomologation:
             approved=False, feedback="x"
         )
 
-        with patch("orchestrator.time"):
+        with patch("squire.time"):
             orch._run_homologation(task)
 
         assert attempts_at_start == [0, 0]
 
     def test_pausa_de_5s_antes_de_cada_homologacao(self):
         """Deve chamar time.sleep(5) antes de cada homologação."""
-        orch = make_orchestrator()
+        orch = make_squire()
         task = make_task(max_homologation_attempts=2)
         orch._run_inner_loop = MagicMock(return_value=True)
         orch.homologator.review.side_effect = [
@@ -306,7 +306,7 @@ class TestRunHomologation:
             make_homolog_result(approved=True),
         ]
 
-        with patch("orchestrator.time") as mock_time:
+        with patch("squire.time") as mock_time:
             orch._run_homologation(task)
 
         assert mock_time.sleep.call_count == 2
@@ -323,11 +323,11 @@ class TestSkipHomologation:
 
     def test_skip_homologation_auto_aprova_sem_chamar_cc(self):
         """Com skip_homologation=True, aprovação ocorre sem chamar homologator.review."""
-        orch = make_orchestrator()
+        orch = make_squire()
         task = make_task(skip_homologation=True)
         orch._run_inner_loop = MagicMock(return_value=True)
 
-        with patch("orchestrator.time"):
+        with patch("squire.time"):
             result = orch._run_homologation(task)
 
         assert result is True
@@ -337,11 +337,11 @@ class TestSkipHomologation:
     def test_skip_homologation_registra_evento_aprovado(self):
         """Auto-aprovação deve registrar evento homologation_approved."""
         from models import EventType, Actor
-        orch = make_orchestrator()
+        orch = make_squire()
         task = make_task(skip_homologation=True)
         orch._run_inner_loop = MagicMock(return_value=True)
 
-        with patch("orchestrator.time"):
+        with patch("squire.time"):
             orch._run_homologation(task)
 
         orch._record_event.assert_any_call(
@@ -349,17 +349,17 @@ class TestSkipHomologation:
             task.id,
             1,
             "Auto-aprovado: skip_homologation=True",
-            Actor.orchestrator,
+            Actor.squire,
         )
 
     def test_sem_skip_homologation_chama_cc_normalmente(self):
         """Com skip_homologation=False (default), homologator.review é chamado."""
-        orch = make_orchestrator()
+        orch = make_squire()
         task = make_task(skip_homologation=False)
         orch._run_inner_loop = MagicMock(return_value=True)
         orch.homologator.review.return_value = make_homolog_result(approved=True)
 
-        with patch("orchestrator.time"):
+        with patch("squire.time"):
             orch._run_homologation(task)
 
         orch.homologator.review.assert_called_once()
@@ -374,9 +374,9 @@ class TestCleanupGitState:
 
     def test_nao_faz_nada_quando_git_limpo(self):
         """Se git status --short retornar vazio, não executa checkout."""
-        orch = make_orchestrator()
+        orch = make_squire()
 
-        with patch("orchestrator.subprocess.run") as mock_run:
+        with patch("squire.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
             orch._cleanup_git_state()
 
@@ -384,37 +384,56 @@ class TestCleanupGitState:
         assert ["git", "status", "--short"] in calls
         assert not any("checkout" in str(c) for c in calls)
 
-    def test_executa_checkout_quando_working_tree_sujo(self):
-        """Se git status mostrar arquivos modificados, executa git checkout -- ."""
-        orch = make_orchestrator()
+    def test_executa_reset_e_checkout_quando_working_tree_sujo(self):
+        """Se git status mostrar arquivos modificados, executa git reset HEAD e git checkout -- ."""
+        orch = make_squire()
 
         status_result = MagicMock(returncode=0, stdout=" M main.py\n?? tmp.py\n", stderr="")
+        reset_result = MagicMock(returncode=0, stdout="", stderr="")
         checkout_result = MagicMock(returncode=0, stdout="", stderr="")
 
-        with patch("orchestrator.subprocess.run", side_effect=[status_result, checkout_result]) as mock_run:
+        with patch("squire.subprocess.run", side_effect=[status_result, reset_result, checkout_result]) as mock_run:
             orch._cleanup_git_state()
 
         calls = [c.args[0] for c in mock_run.call_args_list]
+        assert ["git", "reset", "HEAD", "--", "."] in calls
         assert ["git", "checkout", "--", "."] in calls
+
+    def test_limpa_arquivos_staged(self):
+        """Se git status mostrar arquivos staged (A), executa reset antes de checkout."""
+        orch = make_squire()
+
+        status_result = MagicMock(returncode=0, stdout="A  math_utils.py\nA  utils.py\n", stderr="")
+        reset_result = MagicMock(returncode=0, stdout="", stderr="")
+        checkout_result = MagicMock(returncode=0, stdout="", stderr="")
+
+        with patch("squire.subprocess.run", side_effect=[status_result, reset_result, checkout_result]) as mock_run:
+            orch._cleanup_git_state()
+
+        calls = [c.args[0] for c in mock_run.call_args_list]
+        # reset deve vir antes de checkout
+        reset_idx = next(i for i, c in enumerate(calls) if c == ["git", "reset", "HEAD", "--", "."])
+        checkout_idx = next(i for i, c in enumerate(calls) if c == ["git", "checkout", "--", "."])
+        assert reset_idx < checkout_idx
 
     def test_continua_se_git_status_falhar(self):
         """Se git status falhar (repo sem commits, sem git), não deve levantar exceção."""
-        orch = make_orchestrator()
+        orch = make_squire()
 
-        with patch("orchestrator.subprocess.run") as mock_run:
+        with patch("squire.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=128, stdout="", stderr="not a git repo")
             orch._cleanup_git_state()  # não deve lançar
 
     def test_continua_se_subprocess_lancar_excecao(self):
         """Exceções no subprocess não devem propagar — apenas logar warning."""
-        orch = make_orchestrator()
+        orch = make_squire()
 
-        with patch("orchestrator.subprocess.run", side_effect=FileNotFoundError("git not found")):
+        with patch("squire.subprocess.run", side_effect=FileNotFoundError("git not found")):
             orch._cleanup_git_state()  # não deve lançar
 
     def test_cleanup_chamado_antes_de_run_homologation(self):
         """_cleanup_git_state deve ser chamado antes de _run_homologation em run()."""
-        orch = make_orchestrator()
+        orch = make_squire()
         task = make_task()
 
         call_order = []
@@ -425,13 +444,13 @@ class TestCleanupGitState:
         orch._save_state = MagicMock()
 
         with (
-            patch("orchestrator.config.ensure_dirs"),
-            patch("orchestrator.ckpt.save_project"),
-            patch("orchestrator.ckpt.save_tasks"),
-            patch("orchestrator.ckpt.save_history"),
-            patch("orchestrator.ckpt.release_lock"),
-            patch("orchestrator.ckpt.acquire_lock"),
-            patch("orchestrator.threading"),
+            patch("squire.config.ensure_dirs"),
+            patch("squire.ckpt.save_project"),
+            patch("squire.ckpt.save_tasks"),
+            patch("squire.ckpt.save_history"),
+            patch("squire.ckpt.release_lock"),
+            patch("squire.ckpt.acquire_lock"),
+            patch("squire.threading"),
         ):
             orch.run()
 

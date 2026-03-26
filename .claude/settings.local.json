@@ -12,7 +12,16 @@
       "Bash(mkdir -p /mnt/user/data/orchestrator/projects/orchestrator-dashboard)",
       "Bash(ORCH_STATE_ROOT=/home/ai-debian/orchestrator-state)",
       "Bash(mkdir -p $ORCH_STATE_ROOT/projects/orchestrator-dashboard)",
-      "Bash(echo \"Usando $ORCH_STATE_ROOT\")"
+      "Bash(echo \"Usando $ORCH_STATE_ROOT\")",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Read(//home/ai-debian/orchestrator-state/projects/orchestrator-dashboard/**)",
+      "Read(//home/ai-debian/orchestrator-state/**)",
+      "Read(//home/ai-debian/**)",
+      "Bash(\\\\\nORCH_STATE_ROOT=/home/ai-debian/orchestrator-state \\\\\n  .venv/bin/python orchestrator.py orchestrator-dashboard 2>&1)",
+      "Bash(PYTHONUNBUFFERED=1 \\\\\nORCH_STATE_ROOT=/home/ai-debian/orchestrator-state \\\\\n  .venv/bin/python -u orchestrator.py orchestrator-dashboard 2>&1)",
+      "Bash(python3 -c \"import json,sys; h=json.load\\(sys.stdin\\); [print\\(f''''[{e[\"\"type\"\"]}] {e[\"\"summary\"\"][:80]}''''\\) for e in h[''''events'''']]\")",
+      "Bash(find /home/ai-debian/orchestrator /home/ai-debian/orchestrator-state -name *.log)"
     ]
   }
 }

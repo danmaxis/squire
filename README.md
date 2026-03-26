@@ -1,4 +1,4 @@
-# Orchestrator — Claude Code + LLM Local
+# Squire — Claude Code + LLM Local
 
 Sistema de orquestração que coordena Claude Code (planejamento e homologação)
 com um LLM local (implementação) para execução semi-autônoma de projetos.
@@ -12,21 +12,21 @@ com um LLM local (implementação) para execução semi-autônoma de projetos.
 pip install -e ".[dev]"
 
 # Dry run (simula sem executar LLMs)
-python orchestrator.py orchestrator-dashboard --dry-run
+python squire.py orchestrator-dashboard --dry-run
 
 # Execução real
-python orchestrator.py orchestrator-dashboard
+python squire.py orchestrator-dashboard
 
 # Retomar após crash
-python orchestrator.py orchestrator-dashboard --resume
+python squire.py orchestrator-dashboard --resume
 ```
 
 ## Estrutura do projeto
 
 ```
-orchestrator/
+squire/
 ├── CLAUDE.md            # Briefing completo para o Claude Code
-├── orchestrator.py      # Loop principal — ponto de entrada CLI
+├── squire.py            # Loop principal — ponto de entrada CLI
 ├── models.py            # Schemas Pydantic v2 (checkpoint, tasks, etc.)
 ├── checkpoint.py        # Leitura/escrita atômica de estado + lock
 ├── inner_loop.py        # Interface com LLM local via LiteLLM
@@ -42,7 +42,7 @@ orchestrator/
 │       ├── history.json
 │       └── commits.json
 └── fixtures/            # Dados de exemplo para desenvolvimento do dashboard
-    └── data/            # Espelha a estrutura de /mnt/user/data/orchestrator/
+    └── data/            # Espelha a estrutura de /mnt/user/data/squire/
         ├── alerts.json
         ├── global-stats.json
         └── projects/
@@ -66,15 +66,15 @@ orchestrator/
 
 - **VM**: Ai-Debian no Unraid (Zordon)
 - **LLM local**: Qwen 3.5 35B via LiteLLM em `192.168.50.24:4000/v1`
-- **Estado persistente**: `/mnt/user/data/orchestrator/`
+- **Estado persistente**: `/mnt/user/data/squire/`
 - **Claude Code**: instalado na VM, invocado via `claude --print`
 
 ## Projeto-piloto
 
 O primeiro projeto é o **Orchestrator Dashboard**: uma página Next.js que
-mostra o estado dos projetos conduzidos pelo orquestrador. As 11 tasks
+mostra o estado dos projetos conduzidos pelo squire. As 11 tasks
 estão definidas em `projects/orchestrator-dashboard/tasks.json`.
 
 Os fixtures em `fixtures/data/` simulam um cenário realista com dois projetos
 em estágios diferentes, para desenvolvimento do dashboard sem depender do
-orquestrador rodando.
+squire rodando.
