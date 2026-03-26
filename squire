@@ -425,6 +425,49 @@ cmd_projects() {
     list_projects | sed 's/^/  /'
 }
 
+cmd_tasks_help() {
+    bold "squire tasks — gerenciamento de tasks"
+    echo ""
+    echo -e "  ${CYAN}squire tasks${RESET} <projeto>                    Lista tasks (alias de list)"
+    echo -e "  ${CYAN}squire tasks list${RESET}   <projeto>              Lista tasks com status visual"
+    echo -e "  ${CYAN}squire tasks add${RESET}    <projeto> --title \"...\" [--desc \"...\"] [--id \"...\"] [--skip-homolog] [--max N] [--max-homolog N]"
+    echo -e "  ${CYAN}squire tasks edit${RESET}   <projeto> [<id>]       Edita no \$EDITOR (sem id = tasks.json inteiro)"
+    echo -e "  ${CYAN}squire tasks rm${RESET}     <projeto> <id>         Remove task por ID"
+    echo -e "  ${CYAN}squire tasks split${RESET}  <projeto> <id>         Claude subdivide task em subtasks"
+    echo -e "  ${CYAN}squire tasks plan${RESET}   <projeto> [--desc \"...\"]  Claude planeja tasks (rascunho + refinamento interativo)"
+    echo ""
+    echo -e "  Exemplos:"
+    echo -e "    squire tasks pilotinho"
+    echo -e "    squire tasks add meu-app --title \"Setup inicial\" --skip-homolog"
+    echo -e "    squire tasks plan meu-app --desc \"API REST para usuários\""
+    echo -e "    squire tasks split meu-app task-003"
+}
+
+cmd_tasks() {
+    local subcmd="${1:-}"
+    case "$subcmd" in
+        list|add|edit|rm|split|plan)
+            shift
+            SQUIRE_STATE_ROOT="$SQUIRE_STATE_ROOT" \
+                "$SQUIRE_VENV" -u "$SQUIRE_DIR/tasks_cli.py" "$subcmd" "$@"
+            ;;
+        help|-h|--help)
+            cmd_tasks_help
+            ;;
+        "")
+            error "Projeto obrigatório."
+            echo ""
+            cmd_tasks_help
+            exit 1
+            ;;
+        *)
+            # Não é subcmd reconhecido → assume projeto, default=list
+            SQUIRE_STATE_ROOT="$SQUIRE_STATE_ROOT" \
+                "$SQUIRE_VENV" -u "$SQUIRE_DIR/tasks_cli.py" list "$@"
+            ;;
+    esac
+}
+
 cmd_help() {
     bold "squire — CLI"
     echo ""
@@ -443,6 +486,13 @@ cmd_help() {
     echo -e "                           Retoma tasks com status 'blocked' → pending (mantém o código no repo)"
     echo -e "  ${CYAN}squire reset${RESET}   <projeto> [id...]"
     echo -e "                           Reinicia tasks do zero → pending + limpa o working tree git (descarta código não-commitado)"
+    echo -e "  ${CYAN}squire tasks${RESET}   <projeto>              Lista tasks (alias de list)"
+    echo -e "  ${CYAN}squire tasks list${RESET}   <projeto>          Lista tasks com status visual"
+    echo -e "  ${CYAN}squire tasks add${RESET}    <projeto> --title \"...\" [--desc \"...\"] [--id \"...\"] [--skip-homolog] [--max N]"
+    echo -e "  ${CYAN}squire tasks edit${RESET}   <projeto> [<id>]   Edita task no \$EDITOR"
+    echo -e "  ${CYAN}squire tasks rm${RESET}     <projeto> <id>     Remove task por ID"
+    echo -e "  ${CYAN}squire tasks split${RESET}  <projeto> <id>     Claude subdivide task em subtasks"
+    echo -e "  ${CYAN}squire tasks plan${RESET}   <projeto> [--desc \"...\"]  Claude planeja tasks (rascunho + refinamento)"
     echo -e "  ${CYAN}squire projects${RESET}            Lista projetos disponíveis"
     echo -e "  ${CYAN}squire new${RESET} <projeto>              Cria projeto novo"
     echo -e "  ${CYAN}squire new${RESET} <projeto> --repo <path> --name <nome> --stack <csv> --backend <aider|litellm>"
@@ -474,6 +524,7 @@ case "$CMD" in
     reset)    cmd_reset "$@" ;;
     projects) cmd_projects ;;
     new)      cmd_new "$@" ;;
+    tasks)    cmd_tasks "$@" ;;
     help|-h|--help) cmd_help ;;
     *)
         error "Comando desconhecido: '$CMD'"
