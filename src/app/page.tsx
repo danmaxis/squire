@@ -8,7 +8,7 @@ import AlertBanner from '@/components/AlertBanner';
 import GlobalStats from '@/components/GlobalStats';
 import { RefreshController } from '@/components/RefreshController';
 
-const DATA_PATH = process.env.ORCHESTRATOR_DATA_PATH || join(process.cwd(), 'data');
+const DATA_PATH = process.env.ORCHESTRATOR_DATA_PATH ?? join(process.cwd(), 'fixtures', 'data');
 
 interface ProjectJson {
   id: string;
@@ -77,8 +77,8 @@ async function getProjectsWithProgress() {
 }
 
 async function getAlerts(): Promise<AlertJson[]> {
-  const alerts = await readJson<AlertJson[]>(join(DATA_PATH, 'alerts.json'));
-  return alerts ?? [];
+  const wrapper = await readJson<{ alerts: AlertJson[] }>(join(DATA_PATH, 'alerts.json'));
+  return wrapper?.alerts ?? [];
 }
 
 function mapStatus(status: string): 'active' | 'completed' | 'on-hold' | 'failed' {
@@ -89,8 +89,17 @@ function mapStatus(status: string): 'active' | 'completed' | 'on-hold' | 'failed
   return 'active';
 }
 
+async function getGlobalStatsData() {
+  const stats = await readJson<import('@/lib/types').GlobalStats>(join(DATA_PATH, 'global-stats.json'));
+  return stats ?? null;
+}
+
 export default async function HomePage() {
-  const [projectData, alerts] = await Promise.all([getProjectsWithProgress(), getAlerts()]);
+  const [projectData, alerts, stats] = await Promise.all([
+    getProjectsWithProgress(),
+    getAlerts(),
+    getGlobalStatsData(),
+  ]);
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
@@ -117,7 +126,7 @@ export default async function HomePage() {
         </div>
 
         {/* Métricas globais */}
-        <GlobalStats />
+        <GlobalStats stats={stats} />
 
         {/* Lista de projetos */}
         {projectData.length === 0 ? (

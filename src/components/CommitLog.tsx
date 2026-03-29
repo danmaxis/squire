@@ -1,3 +1,5 @@
+'use client';
+
 import React from 'react';
 
 // Tipos baseados na estrutura esperada de commits.json

@@ -1,54 +1,18 @@
-'use client';
+import type { GlobalStats } from '@/lib/types';
 
-import React, { useEffect, useState } from 'react';
-
-interface GlobalStatsData {
-  active_projects: number;
-  tasks_completed_today: number;
-  llm_calls: {
-    local: number;
-    claude_code: number;
-  };
-  first_approval_rate: number;
+interface GlobalStatsProps {
+  stats: GlobalStats | null;
 }
 
-const GlobalStats: React.FC = () => {
-  const [stats, setStats] = useState<GlobalStatsData>({
-    active_projects: 0,
-    tasks_completed_today: 0,
-    llm_calls: { local: 0, claude_code: 0 },
-    first_approval_rate: 0,
-  });
-
-  useEffect(() => {
-    const fetchStats = async () => {
-      try {
-        const response = await fetch('/global-stats.json');
-        if (!response.ok) {
-          // Se o arquivo não existir ou der erro, mantemos os zeros iniciais
-          return;
-        }
-        const data = await response.json();
-        setStats(data);
-      } catch (error) {
-        console.warn('Falha ao carregar global-stats.json, usando valores padrão.', error);
-      }
-    };
-
-    fetchStats();
-  }, []);
-
-  const totalLlmCalls = stats.llm_calls.local + stats.llm_calls.claude_code;
-  const localPercentage = totalLlmCalls > 0 
-    ? Math.round((stats.llm_calls.local / totalLlmCalls) * 100) 
-    : 0;
-  const claudePercentage = totalLlmCalls > 0 
-    ? Math.round((stats.llm_calls.claude_code / totalLlmCalls) * 100) 
-    : 0;
+export default function GlobalStats({ stats }: GlobalStatsProps) {
+  const localCalls = stats?.daily_local_llm_calls ?? 0;
+  const claudeCalls = stats?.daily_claude_code_calls ?? 0;
+  const totalCalls = localCalls + claudeCalls;
+  const localPct = totalCalls > 0 ? Math.round((localCalls / totalCalls) * 100) : 0;
+  const claudePct = totalCalls > 0 ? Math.round((claudeCalls / totalCalls) * 100) : 0;
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-      {/* Card: Projetos Ativos */}
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 flex items-center space-x-4 border border-gray-200 dark:border-gray-700">
         <div className="p-3 bg-blue-100 dark:bg-blue-900 rounded-full text-blue-600 dark:text-blue-300">
           <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -56,12 +20,11 @@ const GlobalStats: React.FC = () => {
           </svg>
         </div>
         <div>
-          <p className="text-sm text-gray-500 dark:text-gray-400 font-medium">Projetos Ativos</p>
-          <p className="text-2xl font-bold text-gray-900 dark:text-white">{stats.active_projects}</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 font-medium">Projetos Tocados</p>
+          <p className="text-2xl font-bold text-gray-900 dark:text-white">{Array.isArray(stats?.projects_touched_today) ? stats.projects_touched_today.length : (stats?.projects_touched_today ?? 0)}</p>
         </div>
       </div>
 
-      {/* Card: Tasks Completas Hoje */}
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 flex items-center space-x-4 border border-gray-200 dark:border-gray-700">
         <div className="p-3 bg-green-100 dark:bg-green-900 rounded-full text-green-600 dark:text-green-300">
           <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -69,12 +32,11 @@ const GlobalStats: React.FC = () => {
           </svg>
         </div>
         <div>
-          <p className="text-sm text-gray-500 dark:text-gray-400 font-medium">Tasks Completas Hoje</p>
-          <p className="text-2xl font-bold text-gray-900 dark:text-white">{stats.tasks_completed_today}</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 font-medium">Tasks Hoje</p>
+          <p className="text-2xl font-bold text-gray-900 dark:text-white">{stats?.tasks_completed_today ?? 0}</p>
         </div>
       </div>
 
-      {/* Card: Chamadas LLM (Local vs Claude) */}
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 flex items-center space-x-4 border border-gray-200 dark:border-gray-700">
         <div className="p-3 bg-purple-100 dark:bg-purple-900 rounded-full text-purple-600 dark:text-purple-300">
           <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -83,18 +45,13 @@ const GlobalStats: React.FC = () => {
         </div>
         <div className="flex-1">
           <p className="text-sm text-gray-500 dark:text-gray-400 font-medium">Chamadas LLM</p>
-          <div className="flex items-baseline space-x-2">
-            <span className="text-2xl font-bold text-gray-900 dark:text-white">
-              {stats.llm_calls.local + stats.llm_calls.claude_code}
-            </span>
-            <span className="text-xs text-gray-500 dark:text-gray-400">
-              ({localPercentage}% Local, {claudePercentage}% Claude)
-            </span>
+          <div className="flex items-baseline space-x-1">
+            <span className="text-2xl font-bold text-gray-900 dark:text-white">{totalCalls}</span>
+            <span className="text-xs text-gray-500 dark:text-gray-400">({localPct}%L / {claudePct}%CC)</span>
           </div>
         </div>
       </div>
 
-      {/* Card: Taxa de Aprovação 1ª Homologação */}
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 flex items-center space-x-4 border border-gray-200 dark:border-gray-700">
         <div className="p-3 bg-yellow-100 dark:bg-yellow-900 rounded-full text-yellow-600 dark:text-yellow-300">
           <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -102,14 +59,26 @@ const GlobalStats: React.FC = () => {
           </svg>
         </div>
         <div>
-          <p className="text-sm text-gray-500 dark:text-gray-400 font-medium">Aprovação 1ª Homologação</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 font-medium">Aprovação 1ª Homolog.</p>
           <p className="text-2xl font-bold text-gray-900 dark:text-white">
-            {stats.first_approval_rate}%
+            {stats?.approval_first_try_rate !== undefined ? `${Math.round(stats.approval_first_try_rate * 100)}%` : '—'}
+          </p>
+        </div>
+      </div>
+
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 flex items-center space-x-4 border border-gray-200 dark:border-gray-700">
+        <div className="p-3 bg-red-100 dark:bg-red-900 rounded-full text-red-600 dark:text-red-300">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        </div>
+        <div>
+          <p className="text-sm text-gray-500 dark:text-gray-400 font-medium">Custo Hoje</p>
+          <p className="text-2xl font-bold text-gray-900 dark:text-white">
+            {stats?.cost_estimate_usd !== undefined ? `$${Number(stats.cost_estimate_usd).toFixed(2)}` : '—'}
           </p>
         </div>
       </div>
     </div>
   );
-};
-
-export default GlobalStats;
+}
