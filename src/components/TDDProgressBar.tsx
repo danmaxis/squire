@@ -1,4 +1,4 @@
-import { Task, Cursor, LLMContextSummary, CursorStep } from '@/lib/types';
+import type { Task, Cursor, LLMContextSummary, CursorStep } from '@/lib/types';
 
 interface TDDProgressBarProps {
   task: Task;
@@ -53,9 +53,7 @@ export function TDDProgressBar({ task, cursor, llm_context }: TDDProgressBarProp
 
           if (isCurrent) {
             if (step === 'red_phase') {
-              extraInfo = llm_context.tests_passing > 0 || llm_context.tests_failing > 0
-                ? `${task.test_author === 'claude' ? 'Claude' : 'Local LLM'}`
-                : null;
+              extraInfo = `${task.test_author === 'claude' ? 'Claude' : 'Local LLM'}`;
             } else if (step === 'llm_execution') {
               extraInfo = `Tentativa ${cursor.attempt}/${task.max_attempts}`;
             } else if (step === 'testing') {
