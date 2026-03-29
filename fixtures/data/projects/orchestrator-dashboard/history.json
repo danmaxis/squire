@@ -1,0 +1,60 @@
+{
+  "events": [
+    {
+      "timestamp": "2026-03-29T09:00:00Z",
+      "type": "session_started",
+      "task_id": null,
+      "attempt": null,
+      "summary": "Sessão iniciada",
+      "actor": "squire"
+    },
+    {
+      "timestamp": "2026-03-29T09:30:00Z",
+      "type": "task_completed",
+      "task_id": "task-001",
+      "attempt": 1,
+      "summary": "Scaffold concluído com sucesso",
+      "actor": "claude_code"
+    },
+    {
+      "timestamp": "2026-03-29T09:45:00Z",
+      "type": "task_completed",
+      "task_id": "task-002",
+      "attempt": 1,
+      "summary": "Tipos TypeScript definidos",
+      "actor": "claude_code"
+    },
+    {
+      "timestamp": "2026-03-29T10:00:00Z",
+      "type": "tests_passed",
+      "task_id": "task-003",
+      "attempt": 2,
+      "summary": "3 testes passando",
+      "actor": "local_llm"
+    },
+    {
+      "timestamp": "2026-03-29T10:05:00Z",
+      "type": "homologation_requested",
+      "task_id": "task-003",
+      "attempt": 2,
+      "summary": "Homologação solicitada",
+      "actor": "squire"
+    },
+    {
+      "timestamp": "2026-03-29T10:10:00Z",
+      "type": "homologation_failed",
+      "task_id": "task-003",
+      "attempt": 2,
+      "summary": "AlertList wrapper ausente",
+      "actor": "claude_code"
+    },
+    {
+      "timestamp": "2026-03-29T10:15:00Z",
+      "type": "escalation_created",
+      "task_id": "task-003",
+      "attempt": 3,
+      "summary": "Padrão repetitivo detectado — escalação",
+      "actor": "squire"
+    }
+  ]
+}

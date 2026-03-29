@@ -1,143 +1,157 @@
-/**
- * Enums espelhados dos models.py como union types de strings
- * para garantir tipagem estrita e compatibilidade com JSON do Python.
- */
+export type ProjectStatus = 'planning' | 'implementing' | 'reviewing' | 'blocked' | 'completed';
+export type TaskStatus = 'pending' | 'implementing' | 'testing' | 'homologating' | 'completed' | 'blocked';
+export type CursorStep = 'planning' | 'red_phase' | 'llm_execution' | 'testing' | 'homologation' | 'completed';
+export type Effort = 'low' | 'medium' | 'high';
+export type TestAuthor = 'claude' | 'local';
+export type EventType =
+  | 'task_started'
+  | 'implementation_cycle'
+  | 'tests_passed'
+  | 'tests_failed'
+  | 'homologation_requested'
+  | 'homologation_approved'
+  | 'homologation_failed'
+  | 'escalation_created'
+  | 'task_completed'
+  | 'session_started'
+  | 'session_resumed'
+  | 'session_ended';
+export type AlertSeverity = 'warning' | 'critical';
+export type Actor = 'local_llm' | 'claude_code' | 'squire' | 'human';
 
-export type ProjectStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
-export type TaskStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
-export type EventType = 'task_started' | 'task_completed' | 'task_failed' | 'checkpoint_created' | 'alert_generated' | 'commit_created';
-export type AlertSeverity = 'info' | 'warning' | 'error' | 'critical';
-export type Actor = 'system' | 'user' | 'agent' | 'external';
+export interface Subtask {
+  id: string;
+  title: string;
+  status: TaskStatus;
+}
 
-/**
- * Interface: Project
- * Espelha o modelo Pydantic Project
- */
+export interface Task {
+  id: string;
+  title: string;
+  description: string;
+  status: TaskStatus;
+  assigned_to: Actor;
+  attempts: number;
+  max_attempts: number;
+  homologation_result: string | null;
+  homologation_attempt: number;
+  max_homologation_attempts: number;
+  completed_at: string | null;
+  claude_code_assisted: boolean;
+  subtasks: Subtask[];
+  rejection_summaries: string[];
+  no_progress_streak: number;
+  skip_homologation: boolean;
+  effort: Effort;
+  tdd: boolean;
+  test_author: TestAuthor;
+}
+
+export interface TaskList {
+  tasks: Task[];
+}
+
+export interface HistoryEvent {
+  timestamp: string;
+  type: EventType;
+  task_id: string | null;
+  attempt: number | null;
+  summary: string;
+  actor: Actor;
+}
+
+export interface History {
+  events: HistoryEvent[];
+}
+
+export interface CommitSummary {
+  sha: string;
+  message: string;
+  timestamp: string;
+  diff_summary: string;
+  files_changed: string[];
+}
+
+export interface CommitLog {
+  commits: CommitSummary[];
+}
+
+export interface Cursor {
+  current_task_id: string | null;
+  current_subtask_id: string | null;
+  step: CursorStep;
+  attempt: number;
+  homologation_attempt: number;
+}
+
+export interface LLMContextSummary {
+  last_instruction: string;
+  files_touched: string[];
+  last_error: string | null;
+  tests_passing: number;
+  tests_failing: number;
+  test_summary: string;
+}
+
+export interface RateLimitState {
+  claude_code_calls_this_window: number;
+  window_started_at: string;
+  window_duration_minutes: number;
+  max_calls_per_window: number;
+}
+
+export interface RecoveryHints {
+  can_resume: boolean;
+  resume_action: string;
+  blocked_reason: string | null;
+  escalation_needed: boolean;
+}
+
+export interface Checkpoint {
+  version: number;
+  session_id: string;
+  phase: ProjectStatus;
+  started_at: string;
+  last_heartbeat: string;
+  cursor: Cursor;
+  llm_context: LLMContextSummary;
+  rate_limit: RateLimitState;
+  recovery: RecoveryHints;
+}
+
 export interface Project {
   id: string;
   name: string;
   description: string;
+  repo_path: string;
+  stack: string[];
   status: ProjectStatus;
-  created_at: string; // ISO 8601
-  updated_at: string; // ISO 8601
-  owner_id: string;
-  config: Record<string, unknown>;
-}
-
-/**
- * Interface: Task
- * Espelha o modelo Pydantic Task
- */
-export interface Task {
-  id: string;
-  project_id: string;
-  name: string;
-  description: string;
-  status: TaskStatus;
-  priority: number;
-  started_at: string | null;
-  completed_at: string | null;
-  error_message: string | null;
-  metadata: Record<string, unknown>;
   created_at: string;
+  updated_at: string;
+  current_task_id: string | null;
+  coding_backend: string | null;
 }
 
-/**
- * Interface: Subtask
- * Espelha o modelo Pydantic Subtask
- */
-export interface Subtask {
-  id: string;
-  task_id: string;
-  name: string;
-  description: string;
-  status: TaskStatus;
-  order: number;
-  started_at: string | null;
-  completed_at: string | null;
-  error_message: string | null;
-  metadata: Record<string, unknown>;
-  created_at: string;
-}
-
-/**
- * Interface: HistoryEvent
- * Espelha o modelo Pydantic HistoryEvent
- */
-export interface HistoryEvent {
-  id: string;
-  project_id: string;
-  task_id: string | null;
-  subtask_id: string | null;
-  event_type: EventType;
-  actor: Actor;
-  timestamp: string; // ISO 8601
-  message: string;
-  metadata: Record<string, unknown>;
-}
-
-/**
- * Interface: CommitSummary
- * Espelha o modelo Pydantic CommitSummary
- */
-export interface CommitSummary {
-  id: string;
-  project_id: string;
-  task_id: string | null;
-  commit_hash: string;
-  message: string;
-  author: string;
-  timestamp: string; // ISO 8601
-  changes: Array<{
-    file: string;
-    action: 'added' | 'modified' | 'deleted';
-  }>;
-}
-
-/**
- * Interface: Alert
- * Espelha o modelo Pydantic Alert
- */
 export interface Alert {
-  id: string;
   project_id: string;
-  task_id: string | null;
   severity: AlertSeverity;
-  title: string;
-  description: string;
-  timestamp: string; // ISO 8601
-  resolved: boolean;
-  resolved_at: string | null;
-  metadata: Record<string, unknown>;
-}
-
-/**
- * Interface: GlobalStats
- * Espelha o modelo Pydantic GlobalStats
- */
-export interface GlobalStats {
-  total_projects: number;
-  active_projects: number;
-  completed_projects: number;
-  total_tasks: number;
-  running_tasks: number;
-  failed_tasks: number;
-  total_alerts: number;
-  critical_alerts: number;
-  last_updated: string; // ISO 8601
-}
-
-/**
- * Interface: Checkpoint
- * Espelha o modelo Pydantic Checkpoint
- */
-export interface Checkpoint {
-  id: string;
-  project_id: string;
+  type: string;
   task_id: string | null;
-  name: string;
-  description: string;
-  timestamp: string; // ISO 8601
-  state_snapshot: Record<string, unknown>;
-  metadata: Record<string, unknown>;
+  message: string;
+  created_at: string;
+  acknowledged: boolean;
+}
+
+export interface AlertList {
+  alerts: Alert[];
+}
+
+export interface GlobalStats {
+  daily_claude_code_calls: number;
+  daily_local_llm_calls: number;
+  date: string;
+  cost_estimate_usd: number;
+  projects_touched_today: string[];
+  tasks_completed_today: number;
+  approval_first_try_rate: number;
 }
