@@ -103,7 +103,7 @@ class TestWaitProductively:
         orch._wait_productively(task, "feedback anterior")
 
         orch._run_inner_loop.assert_called_once_with(
-            task, homologation_feedback="feedback anterior"
+            task, homologation_feedback="feedback anterior", test_hashes=None
         )
 
     def test_chama_inner_loop_multiplas_vezes_se_rate_limit_persiste(self):
@@ -116,7 +116,7 @@ class TestWaitProductively:
 
         assert orch._run_inner_loop.call_count == 3
         for c in orch._run_inner_loop.call_args_list:
-            assert c == call(task, homologation_feedback="meu feedback")
+            assert c == call(task, homologation_feedback="meu feedback", test_hashes=None)
 
     def test_reseta_attempts_antes_de_cada_inner_loop(self):
         """task.attempts deve ser zerado antes de cada rodada do inner loop."""
@@ -143,7 +143,20 @@ class TestWaitProductively:
 
         orch._wait_productively(task, "")
 
-        orch._run_inner_loop.assert_called_once_with(task, homologation_feedback="")
+        orch._run_inner_loop.assert_called_once_with(task, homologation_feedback="", test_hashes=None)
+
+    def test_propaga_test_hashes_para_inner_loop(self):
+        """test_hashes passado para _wait_productively deve chegar ao inner loop."""
+        orch = make_squire(can_call_side_effect=[False, True])
+        task = make_task()
+        hashes = {"tests/test_foo.py": "abc123"}
+        orch._run_inner_loop = MagicMock(return_value=True)
+
+        orch._wait_productively(task, "", test_hashes=hashes)
+
+        orch._run_inner_loop.assert_called_once_with(
+            task, homologation_feedback="", test_hashes=hashes
+        )
 
 
 # ── TestRunHomologation ──────────────────────────────────────────────
@@ -217,11 +230,11 @@ class TestRunHomologation:
     def test_feedback_da_rejeicao_usado_na_rodada_seguinte(self):
         """Feedback da rejeição deve chegar como homologation_feedback no inner loop seguinte."""
         orch = make_squire()
-        task = make_task(max_homologation_attempts=2)
+        task = make_task(max_homologation_attempts=2, tdd=False)
 
         inner_loop_feedbacks = []
 
-        def capture_inner(t, homologation_feedback=""):
+        def capture_inner(t, homologation_feedback="", test_hashes=None):
             inner_loop_feedbacks.append(homologation_feedback)
             return True
 
@@ -278,10 +291,10 @@ class TestRunHomologation:
     def test_attempts_resetado_no_inicio_de_cada_rodada(self):
         """task.attempts deve ser zerado no início de cada rodada."""
         orch = make_squire()
-        task = make_task(max_homologation_attempts=2)
+        task = make_task(max_homologation_attempts=2, tdd=False)
         attempts_at_start = []
 
-        def capture(t, homologation_feedback=""):
+        def capture(t, homologation_feedback="", test_hashes=None):
             attempts_at_start.append(t.attempts)
             t.attempts = 7  # simula progresso dentro do inner loop
             return True
@@ -470,3 +483,105 @@ class TestCleanupGitState:
             orch.run()
 
         assert call_order.index("cleanup") < call_order.index("homolog")
+
+
+# ── TestRedPhase ──────────────────────────────────────────────────────
+
+class TestRedPhase:
+    """Gap 8: fase RED — escrever testes antes da implementação."""
+
+    def test_red_phase_nao_roda_com_tdd_false(self):
+        """Com tdd=False, _run_red_phase não deve ser chamado."""
+        orch = make_squire()
+        task = make_task(tdd=False)
+        orch._run_red_phase = MagicMock()
+        orch._run_inner_loop = MagicMock(return_value=True)
+        orch.homologator.review.return_value = make_homolog_result(approved=True)
+        orch.inner_loop.snapshot_test_hashes.return_value = {}
+
+        with patch("squire.time"):
+            orch._run_homologation(task)
+
+        orch._run_red_phase.assert_not_called()
+
+    def test_red_phase_roda_quando_sem_testes_existentes(self):
+        """Com tdd=True e sem testes, _run_red_phase deve ser chamado."""
+        orch = make_squire()
+        task = make_task(tdd=True)
+        orch._run_red_phase = MagicMock()
+        orch._run_inner_loop = MagicMock(return_value=True)
+        orch.homologator.review.return_value = make_homolog_result(approved=True)
+        # Primeiro snapshot: vazio (nenhum teste existente) → RED phase deve rodar
+        # Segundo snapshot: após RED phase → retorna hashes
+        orch.inner_loop.snapshot_test_hashes.side_effect = [
+            {},                                          # antes da RED phase
+            {"tests/test_foo.py": "abc123"},             # após RED phase
+        ]
+
+        with patch("squire.time"):
+            orch._run_homologation(task)
+
+        orch._run_red_phase.assert_called_once_with(task)
+
+    def test_red_phase_nao_roda_quando_testes_existem(self):
+        """Com tdd=True mas testes já existentes, _run_red_phase NÃO deve rodar."""
+        orch = make_squire()
+        task = make_task(tdd=True)
+        orch._run_red_phase = MagicMock()
+        orch._run_inner_loop = MagicMock(return_value=True)
+        orch.homologator.review.return_value = make_homolog_result(approved=True)
+        orch.inner_loop.snapshot_test_hashes.return_value = {"tests/test_existing.py": "hash1"}
+
+        with patch("squire.time"):
+            orch._run_homologation(task)
+
+        orch._run_red_phase.assert_not_called()
+
+    def test_test_hashes_passados_ao_inner_loop(self):
+        """test_hashes do snapshot devem ser passados ao _run_inner_loop."""
+        orch = make_squire()
+        task = make_task(tdd=True)
+        hashes = {"tests/test_core.py": "deadbeef"}
+        orch._run_red_phase = MagicMock()
+        orch.inner_loop.snapshot_test_hashes.side_effect = [{}, hashes]
+
+        inner_loop_calls = []
+
+        def capture(t, homologation_feedback="", test_hashes=None):
+            inner_loop_calls.append(test_hashes)
+            return True
+
+        orch._run_inner_loop = capture
+        orch.homologator.review.return_value = make_homolog_result(approved=True)
+
+        with patch("squire.time"):
+            orch._run_homologation(task)
+
+        assert inner_loop_calls[0] == hashes
+
+    def test_test_hashes_passados_ao_homologador(self):
+        """test_hashes devem ser passados ao homologator.review."""
+        orch = make_squire()
+        task = make_task(tdd=True)
+        hashes = {"tests/test_api.py": "cafebabe"}
+        orch._run_red_phase = MagicMock()
+        orch.inner_loop.snapshot_test_hashes.side_effect = [{}, hashes]
+        orch._run_inner_loop = MagicMock(return_value=True)
+        orch.homologator.review.return_value = make_homolog_result(approved=True)
+
+        with patch("squire.time"):
+            orch._run_homologation(task)
+
+        call_kwargs = orch.homologator.review.call_args[1]
+        assert call_kwargs.get("test_hashes") == hashes
+
+    def test_dry_run_pula_red_phase_real(self):
+        """Em dry_run, _run_red_phase não deve invocar subprocess."""
+        orch = make_squire()
+        orch.dry_run = True
+        task = make_task(tdd=True)
+
+        with patch("squire.subprocess.run") as mock_sub:
+            orch._run_red_phase(task)
+
+        mock_sub.assert_not_called()

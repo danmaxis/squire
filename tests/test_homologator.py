@@ -163,3 +163,127 @@ class TestReadFilesForReview:
         result = h._read_files_for_review(["src/nao_existe.ts"])
         assert "nao_existe.ts" in result
         assert "erro ao ler" in result
+
+
+# ── TestBuildReviewPromptViking ──────────────────────────────────────
+
+class TestBuildReviewPromptViking:
+    """Gap 7: Viking context injetado no prompt de review."""
+
+    def _make_context(self):
+        from models import LLMContextSummary
+        return LLMContextSummary(files_touched=[], tests_passing=3, tests_failing=0)
+
+    def _make_task(self, **kwargs):
+        from models import Task, TaskStatus
+        defaults = dict(
+            id="t1", title="Test", description="Desc",
+            status=TaskStatus.pending, attempts=0, max_attempts=10,
+            homologation_attempt=0, max_homologation_attempts=3,
+        )
+        defaults.update(kwargs)
+        return Task(**defaults)
+
+    def test_viking_context_aparece_no_prompt(self, tmp_path):
+        """Quando Viking docs existem, devem aparecer no prompt de review."""
+        h = make_homologator(tmp_path)
+        viking_dir = tmp_path / "docs" / "viking"
+        viking_dir.mkdir(parents=True)
+        (viking_dir / "stack_python.md").write_text("Use ruff para lint, proibido black")
+
+        prompt = h._build_review_prompt(self._make_task(), self._make_context(), 1)
+        assert "Use ruff para lint" in prompt
+        assert "Padrão Viking" in prompt
+
+    def test_checklist_item_viking_presente(self, tmp_path):
+        """Com Viking docs, item 5 do checklist deve estar no prompt."""
+        h = make_homologator(tmp_path)
+        viking_dir = tmp_path / "docs" / "viking"
+        viking_dir.mkdir(parents=True)
+        (viking_dir / "banco_dados.md").write_text("Proibido ORM")
+
+        prompt = h._build_review_prompt(self._make_task(), self._make_context(), 1)
+        assert "Viking" in prompt
+        # Deve ter mais itens de avaliação que o padrão (5 vs 4)
+        assert prompt.count("\n1.") + prompt.count("\n2.") + prompt.count("\n5.") > 0
+
+    def test_sem_viking_docs_nao_adiciona_checklist(self, tmp_path):
+        """Sem /docs/viking/, o item 5 não aparece."""
+        h = make_homologator(tmp_path)
+        prompt = h._build_review_prompt(self._make_task(), self._make_context(), 1)
+        assert "restrições de domínio" not in prompt.lower() or "Padrão Viking" not in prompt
+
+
+# ── TestReviewTestIntegrity ──────────────────────────────────────────
+
+class TestReviewTestIntegrity:
+    """Gap 7: review() rejeita automaticamente se Executor tocou em test_*.py."""
+
+    def _make_context(self):
+        from models import LLMContextSummary
+        return LLMContextSummary(files_touched=[], tests_passing=5, tests_failing=0)
+
+    def _make_task(self):
+        from models import Task, TaskStatus
+        return Task(
+            id="t1", title="T", description="D",
+            status=TaskStatus.implementing, attempts=0, max_attempts=10,
+            homologation_attempt=0, max_homologation_attempts=3,
+        )
+
+    def test_rejeita_quando_teste_modificado(self, tmp_path):
+        """review() com test_hashes deve rejeitar se arquivo de teste foi alterado."""
+        from homologator import Homologator
+        h = Homologator(project_path=str(tmp_path), claude_bin="claude", verbose=False)
+
+        test_file = tmp_path / "test_core.py"
+        test_file.write_text("original")
+        hashes_before = {str(test_file): __import__("hashlib").sha256(b"original").hexdigest()}
+
+        # Simular modificação pelo Executor
+        test_file.write_text("MODIFICADO")
+
+        with patch("homologator.subprocess.run"):  # não deve ser chamado
+            result = h.review(self._make_task(), self._make_context(), test_hashes=hashes_before)
+
+        assert result.approved is False
+        assert "VIOLAÇÃO" in result.summary
+        assert "test_core.py" in result.feedback
+
+    def test_nao_chama_claude_quando_violacao_detectada(self, tmp_path):
+        """Quando violação de teste é detectada, claude não deve ser invocado."""
+        import json as _json
+        from homologator import Homologator
+        h = Homologator(project_path=str(tmp_path), claude_bin="claude", verbose=False)
+
+        test_file = tmp_path / "test_x.py"
+        test_file.write_text("original")
+        hashes = {str(test_file): __import__("hashlib").sha256(b"original").hexdigest()}
+        test_file.write_text("tampered")
+
+        calls = []
+
+        def track_subprocess(cmd, **kwargs):
+            calls.append(cmd)
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        with patch("inner_loop.subprocess.run", side_effect=track_subprocess):
+            h.review(self._make_task(), self._make_context(), test_hashes=hashes)
+
+        # git revert pode ter sido chamado, mas "claude" nunca deve aparecer
+        assert not any("claude" in str(c) for c in calls)
+
+    def test_sem_test_hashes_chama_claude_normalmente(self, tmp_path):
+        """Sem test_hashes, o fluxo normal (chamar Claude) deve ocorrer."""
+        import json as _json
+        from homologator import Homologator
+        h = Homologator(project_path=str(tmp_path), claude_bin="claude", verbose=False)
+
+        review_data = {"approved": True, "summary": "ok", "feedback": "", "fix_suggestion": "", "suggestions": []}
+        stdout = _json.dumps({"result": _json.dumps(review_data)})
+        mock_result = MagicMock(returncode=0, stdout=stdout, stderr="")
+
+        with patch("homologator.subprocess.run", return_value=mock_result):
+            result = h.review(self._make_task(), self._make_context(), test_hashes=None)
+
+        assert result.approved is True

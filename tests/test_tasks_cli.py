@@ -91,7 +91,8 @@ class TestCmdAdd:
         from tasks_cli import cmd_add
         saved = []
         with _patch_project(), _patch_tasks(TaskList()), \
-             patch("tasks_cli.ckpt.save_tasks", side_effect=lambda pid, tl: saved.append(tl)):
+             patch("tasks_cli.ckpt.save_tasks", side_effect=lambda pid, tl: saved.append(tl)), \
+             patch("builtins.input", return_value="n"):
             cmd_add("test-proj", title="Nova task")
         assert len(saved) == 1
         assert saved[0].tasks[0].id == "task-001"
@@ -101,14 +102,15 @@ class TestCmdAdd:
         from tasks_cli import cmd_add
         saved = []
         with _patch_project(), _patch_tasks(TaskList()), \
-             patch("tasks_cli.ckpt.save_tasks", side_effect=lambda pid, tl: saved.append(tl)):
+             patch("tasks_cli.ckpt.save_tasks", side_effect=lambda pid, tl: saved.append(tl)), \
+             patch("builtins.input", return_value="n"):
             cmd_add("test-proj", title="Task X", task_id="task-xyz")
         assert saved[0].tasks[0].id == "task-xyz"
 
     def test_add_id_duplicado_falha(self):
         from tasks_cli import cmd_add
         tl = make_task_list(make_task("task-001"))
-        with _patch_project(), _patch_tasks(tl):
+        with _patch_project(), _patch_tasks(tl), patch("builtins.input", return_value="n"):
             with pytest.raises(SystemExit) as exc:
                 cmd_add("test-proj", title="Dup", task_id="task-001")
             assert exc.value.code == 1
@@ -117,7 +119,8 @@ class TestCmdAdd:
         from tasks_cli import cmd_add
         saved = []
         with _patch_project(), _patch_tasks(TaskList()), \
-             patch("tasks_cli.ckpt.save_tasks", side_effect=lambda pid, tl: saved.append(tl)):
+             patch("tasks_cli.ckpt.save_tasks", side_effect=lambda pid, tl: saved.append(tl)), \
+             patch("builtins.input", return_value="n"):
             cmd_add("test-proj", title="Setup", skip_homologation=True)
         assert saved[0].tasks[0].skip_homologation is True
 
@@ -125,7 +128,8 @@ class TestCmdAdd:
         from tasks_cli import cmd_add
         saved = []
         with _patch_project(), _patch_tasks(TaskList()), \
-             patch("tasks_cli.ckpt.save_tasks", side_effect=lambda pid, tl: saved.append(tl)):
+             patch("tasks_cli.ckpt.save_tasks", side_effect=lambda pid, tl: saved.append(tl)), \
+             patch("builtins.input", return_value="n"):
             cmd_add("test-proj", title="Task", max_attempts=3, max_homologation_attempts=2)
         t = saved[0].tasks[0]
         assert t.max_attempts == 3
@@ -136,9 +140,25 @@ class TestCmdAdd:
         tl = make_task_list(make_task("task-001"), make_task("task-002"))
         saved = []
         with _patch_project(), _patch_tasks(tl), \
-             patch("tasks_cli.ckpt.save_tasks", side_effect=lambda pid, tl: saved.append(tl)):
+             patch("tasks_cli.ckpt.save_tasks", side_effect=lambda pid, tl: saved.append(tl)), \
+             patch("builtins.input", return_value="n"):
             cmd_add("test-proj", title="Terceira")
         assert saved[0].tasks[-1].id == "task-003"
+
+    def test_add_com_advanced_fields(self):
+        """Campos avançados (effort/tdd/test_author) salvos quando usuario confirma."""
+        from tasks_cli import cmd_add
+        from models import Effort, TestAuthor
+        saved = []
+        # Simula: usuario responde "y" para avançados, depois medium/y/claude
+        with _patch_project(), _patch_tasks(TaskList()), \
+             patch("tasks_cli.ckpt.save_tasks", side_effect=lambda pid, tl: saved.append(tl)), \
+             patch("builtins.input", side_effect=["y", "medium", "y", "claude"]):
+            cmd_add("test-proj", title="TDD Task")
+        t = saved[0].tasks[0]
+        assert t.effort == Effort.medium
+        assert t.tdd is True
+        assert t.test_author == TestAuthor.claude
 
 
 # ── cmd_rm ───────────────────────────────────────────────────────────
@@ -260,7 +280,7 @@ class TestCmdPlan:
         with _patch_project(), _patch_tasks(existing), \
              patch("tasks_cli.ckpt.save_tasks", side_effect=lambda pid, tl: saved.append(tl)), \
              patch("tasks_cli._call_claude", return_value=self._claude_plan_response(novas)), \
-             patch("builtins.input", side_effect=["ok", "r"]):
+             patch("builtins.input", side_effect=["ok", "r", "n"]):  # "n" = não gerar SPEC.md
             cmd_plan("test-proj", desc="Descrição do projeto")
 
         assert len(saved) == 1
@@ -276,7 +296,7 @@ class TestCmdPlan:
         with _patch_project(), _patch_tasks(existing), \
              patch("tasks_cli.ckpt.save_tasks", side_effect=lambda pid, tl: saved.append(tl)), \
              patch("tasks_cli._call_claude", return_value=self._claude_plan_response(novas)), \
-             patch("builtins.input", side_effect=["ok", "a"]):
+             patch("builtins.input", side_effect=["ok", "a", "n"]):
             cmd_plan("test-proj", desc="Descrição")
 
         assert len(saved) == 1
@@ -289,11 +309,10 @@ class TestCmdPlan:
         novas = [{"id": "task-001", "title": "Primeira", "description": "", "max_attempts": 10,
                   "max_homologation_attempts": 5, "skip_homologation": False}]
         saved = []
-        inputs = iter(["ok"])  # sem pergunta de replace/append
         with _patch_project(), _patch_tasks(TaskList()), \
              patch("tasks_cli.ckpt.save_tasks", side_effect=lambda pid, tl: saved.append(tl)), \
              patch("tasks_cli._call_claude", return_value=self._claude_plan_response(novas)), \
-             patch("builtins.input", side_effect=inputs):
+             patch("builtins.input", side_effect=["ok", "n"]):  # "n" = sem SPEC.md
             cmd_plan("test-proj", desc="Desc")
 
         assert len(saved[0].tasks) == 1
@@ -313,7 +332,7 @@ class TestCmdPlan:
         with _patch_project(), _patch_tasks(TaskList()), \
              patch("tasks_cli.ckpt.save_tasks", side_effect=lambda pid, tl: saved.append(tl)), \
              patch("tasks_cli._call_claude", side_effect=mock_claude), \
-             patch("builtins.input", side_effect=["adicione mais detalhes", "ok"]):
+             patch("builtins.input", side_effect=["adicione mais detalhes", "ok", "n"]):
             cmd_plan("test-proj", desc="Desc")
 
         assert len(call_count) == 2  # draft + 1 refinamento
@@ -328,7 +347,7 @@ class TestCmdPlan:
         with _patch_project(), _patch_tasks(existing), \
              patch("tasks_cli.ckpt.save_tasks", side_effect=lambda pid, tl: saved.append(tl)), \
              patch("tasks_cli._call_claude", return_value=self._claude_plan_response(novas)), \
-             patch("builtins.input", side_effect=["ok", "a"]):
+             patch("builtins.input", side_effect=["ok", "a", "n"]):
             cmd_plan("test-proj", desc="Desc")
 
         tasks = saved[0].tasks
