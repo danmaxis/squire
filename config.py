@@ -10,10 +10,7 @@ from pathlib import Path
 # ── Paths ──────────────────────────────────────────────────────────
 
 # Raiz do estado persistente (volume Unraid montado na VM)
-STATE_ROOT = Path(os.getenv(
-    "SQUIRE_STATE_ROOT",
-    "/mnt/user/data/squire"
-))
+STATE_ROOT = Path(os.environ["SQUIRE_STATE_ROOT"])
 
 PROJECTS_DIR = STATE_ROOT / "projects"
 ALERTS_FILE = STATE_ROOT / "alerts.json"
@@ -26,7 +23,7 @@ RATE_FILE = STATE_ROOT / "rate.json"
 
 LITELLM_BASE_URL = os.getenv(
     "SQUIRE_LITELLM_URL",
-    "http://192.168.50.24:4000/v1"
+    "http://localhost:4000/v1"
 )
 
 LITELLM_MODEL = os.getenv(
@@ -34,7 +31,13 @@ LITELLM_MODEL = os.getenv(
     "journal-synth"  # alias apontando pro Qwen3.5-35B-A3B
 )
 
-LITELLM_API_KEY = os.getenv("SQUIRE_LITELLM_KEY", "masterofpuppets")
+# Modelos por nível de complexidade (effort-aware routing)
+# Por padrão todos apontam para o mesmo modelo; diferencie via env vars
+MODEL_LOW    = os.getenv("SQUIRE_MODEL_LOW",    LITELLM_MODEL)
+MODEL_MEDIUM = os.getenv("SQUIRE_MODEL_MEDIUM", LITELLM_MODEL)
+MODEL_HIGH   = os.getenv("SQUIRE_MODEL_HIGH",   LITELLM_MODEL)
+
+LITELLM_API_KEY = os.getenv("SQUIRE_LITELLM_KEY", "sk-local")
 
 # Limites do inner loop
 INNER_LOOP_MAX_ATTEMPTS = int(os.getenv("SQUIRE_INNER_MAX_ATTEMPTS", "10"))

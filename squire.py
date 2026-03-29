@@ -42,6 +42,7 @@ from models import (
     HistoryEvent,
     ProjectStatus,
     TaskStatus,
+    TestAuthor,
 )
 
 
@@ -241,9 +242,79 @@ class Squire:
             log("Instruções de desbloqueio recebidas do Claude Code", "ok")
         return extra or context_feedback
 
+    # ── Fase RED (TDD) ─────────────────────────────────────────────
+
+    def _run_red_phase(self, task) -> None:
+        """
+        Fase RED: escreve testes falhos uma única vez antes da implementação.
+
+        Para test_author=claude: Claude Code escreve os testes.
+        Para test_author=local: LLM local escreve os testes.
+        Não conta como tentativa de implementação.
+        """
+        log(f"Fase RED — escrevendo testes: [{task.id}] {task.title}")
+        self.cp.cursor.step = CursorStep.red_phase
+        self._save_state()
+
+        if self.dry_run:
+            log("[dry-run] Simulando fase RED", "warn")
+            return
+
+        red_prompt = (
+            f"## Fase RED — Escreva APENAS os testes (não implemente ainda)\n\n"
+            f"Task: {task.title}\n"
+            f"Descrição: {task.description}\n"
+            f"Projeto em: {self.inner_loop.project_path}\n\n"
+            f"Escreva os testes que definem o comportamento esperado. "
+            f"Os testes DEVEM FALHAR agora pois o código de produção ainda não existe. "
+            f"Crie apenas arquivos de teste (test_*.py ou *.test.ts/tsx). "
+            f"NÃO implemente nenhuma função, classe ou módulo de produção."
+        )
+
+        if task.test_author == TestAuthor.claude:
+            if not self.rate_limiter.can_call():
+                log("Rate limit ativo — fase RED (Claude) adiada", "warn")
+                return
+            self.rate_limiter.record_call()
+            self.stats.daily_claude_code_calls += 1
+            self.session_cc_calls += 1
+            try:
+                result = subprocess.run(
+                    [self.homologator.claude_bin, "--print"],
+                    input=red_prompt,
+                    cwd=str(self.inner_loop.project_path),
+                    capture_output=True, text=True, timeout=180,
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    from backends import parse_and_apply_files
+                    files = parse_and_apply_files(result.stdout, self.inner_loop.project_path)
+                    log(f"Fase RED (Claude): {len(files)} arquivo(s) criado(s)", "ok")
+            except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+                log(f"Fase RED (Claude) falhou: {e}", "warn")
+        else:
+            # LLM local escreve os testes
+            red_task = task.model_copy(update={"description": red_prompt, "attempts": 0})
+            result = self.inner_loop.execute(
+                task=red_task,
+                previous_context=None,
+                extra_instructions="",
+                test_hashes=None,  # sem proteção — é a fase RED que cria os testes
+            )
+            self.stats.daily_local_llm_calls += 1
+            self.session_local_calls += 1
+            if result.files_touched:
+                log(f"Fase RED (local): {len(result.files_touched)} arquivo(s) criado(s)", "ok")
+            elif result.error:
+                log(f"Fase RED (local) erro: {result.error}", "warn")
+
     # ── Inner Loop (uma task) ──────────────────────────────────────
 
-    def _run_inner_loop(self, task, homologation_feedback: str = "") -> bool:
+    def _run_inner_loop(
+        self,
+        task,
+        homologation_feedback: str = "",
+        test_hashes: dict[str, str] | None = None,
+    ) -> bool:
         """
         Executa o inner loop até os testes passarem ou esgotar tentativas.
         Retorna True se os testes passaram.
@@ -266,6 +337,7 @@ class Squire:
                 task=task,
                 previous_context=self.cp.llm_context,
                 extra_instructions=extra_instructions,
+                test_hashes=test_hashes,
             )
 
             # Atualizar contexto no checkpoint
@@ -351,7 +423,12 @@ class Squire:
 
     # ── Espera produtiva ───────────────────────────────────────────
 
-    def _wait_productively(self, task, last_feedback: str) -> None:
+    def _wait_productively(
+        self,
+        task,
+        last_feedback: str,
+        test_hashes: dict[str, str] | None = None,
+    ) -> None:
         """
         Enquanto o rate limit estiver ativo, continua refinando o código
         com o feedback da última homologação, em vez de dormir.
@@ -364,7 +441,7 @@ class Squire:
                 "continuando inner loop enquanto aguarda...", "warn"
             )
             task.attempts = 0
-            self._run_inner_loop(task, homologation_feedback=last_feedback)
+            self._run_inner_loop(task, homologation_feedback=last_feedback, test_hashes=test_hashes)
 
     # ── Ciclo de rodadas (Ralph Loop) ─────────────────────────────
 
@@ -378,6 +455,21 @@ class Squire:
         """
         last_feedback = ""  # feedback acumulado da última rejeição
 
+        # ── Fase RED: escrever testes antes da implementação ──
+        test_hashes: dict[str, str] | None = None
+        if task.tdd:
+            existing = self.inner_loop.snapshot_test_hashes()
+            # Só rodar RED se não há testes ainda e cursor não está além da fase RED
+            already_past_red = (
+                self.cp.cursor.current_task_id == task.id
+                and self.cp.cursor.step not in (None, CursorStep.red_phase)
+            )
+            if not existing and not already_past_red:
+                self._run_red_phase(task)
+            test_hashes = self.inner_loop.snapshot_test_hashes()
+            if test_hashes:
+                log(f"Snapshot: {len(test_hashes)} arquivo(s) de teste protegido(s)", "ok")
+
         while task.homologation_attempt < task.max_homologation_attempts:
             rodada = task.homologation_attempt + 1
             total  = task.max_homologation_attempts
@@ -385,7 +477,7 @@ class Squire:
             # ── Inner loop desta rodada ──
             log(f"Rodada {rodada}/{total} — inner loop: [{task.id}] {task.title}")
             task.attempts = 0
-            self._run_inner_loop(task, homologation_feedback=last_feedback)
+            self._run_inner_loop(task, homologation_feedback=last_feedback, test_hashes=test_hashes)
             # Resultado dos testes é ignorado: sempre avança para homologação
 
             # Pausa para garantir que o Qwen terminou antes do claude --print
@@ -414,7 +506,7 @@ class Squire:
                 return True
 
             # Se rate limited, refina com inner loop enquanto aguarda
-            self._wait_productively(task, last_feedback)
+            self._wait_productively(task, last_feedback, test_hashes=test_hashes)
 
             self.rate_limiter.record_call()
             self.stats.daily_claude_code_calls += 1
@@ -424,6 +516,7 @@ class Squire:
                 task=task,
                 context=self.cp.llm_context,
                 attempt=task.homologation_attempt,
+                test_hashes=test_hashes,
             )
 
             self._save_state()

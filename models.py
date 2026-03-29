@@ -33,10 +33,22 @@ class TaskStatus(str, Enum):
 
 class CursorStep(str, Enum):
     planning = "planning"
+    red_phase = "red_phase"       # escrita do teste (antes do inner loop)
     llm_execution = "llm_execution"
     testing = "testing"
     homologation = "homologation"
     completed = "completed"
+
+
+class Effort(str, Enum):
+    low = "low"
+    medium = "medium"
+    high = "high"
+
+
+class TestAuthor(str, Enum):
+    claude = "claude"
+    local = "local"
 
 
 class EventType(str, Enum):
@@ -110,6 +122,12 @@ class Task(BaseModel):
     # Se True, pula homologação pelo Claude Code (auto-aprovado após inner loop)
     # Útil para tasks de setup/boilerplate que não precisam de review
     skip_homologation: bool = False
+    # Nível de complexidade — usado para selecionar o modelo LLM adequado
+    effort: Effort = Effort.medium
+    # Se True, exige fase RED (escrita de testes) antes do inner loop
+    tdd: bool = True
+    # Quem escreve os testes na fase RED
+    test_author: TestAuthor = TestAuthor.claude
 
 
 class TaskList(BaseModel):

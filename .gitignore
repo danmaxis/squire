@@ -8,3 +8,9 @@ dist/
 build/
 .pytest_cache/
 .ruff_cache/
+
+# Runtime state files (generated at execution, not source)
+alerts.json
+global_stats.json
+global-stats.json
+tasks.json

@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import config
+import viking as _viking
 from models import LLMContextSummary, Task
 
 
@@ -64,6 +65,7 @@ class Homologator:
         task: Task,
         context: LLMContextSummary,
         attempt: int = 1,
+        test_hashes: dict[str, str] | None = None,
     ) -> HomologationResult:
         """
         Solicita ao Claude Code uma revisão do trabalho feito na task.
@@ -71,6 +73,28 @@ class Homologator:
         Usa o modo --print para interação não-interativa:
         envia o prompt e recebe a resposta como stdout.
         """
+        # Verificar integridade dos arquivos de teste antes do review
+        if test_hashes is not None:
+            from inner_loop import InnerLoop
+            il = InnerLoop(str(self.project_path), verbose=False)
+            modified = il.check_test_integrity(test_hashes)
+            if modified:
+                rel_names = [Path(p).name for p in modified]
+                il.revert_test_files(modified)
+                return HomologationResult(
+                    approved=False,
+                    summary="VIOLAÇÃO: arquivos de teste foram modificados pelo Executor.",
+                    feedback=(
+                        f"O Executor modificou arquivo(s) de teste protegido(s): "
+                        f"{', '.join(rel_names)}. Alterações revertidas via git. "
+                        f"PROIBIDO modificar test_*.py — implemente apenas o código de produção."
+                    ),
+                    fix_suggestion=(
+                        "Não altere os arquivos test_*.py. "
+                        "Implemente apenas o código de produção que faz os testes passarem."
+                    ),
+                )
+
         prompt = self._build_review_prompt(task, context, attempt)
         self._vlog("→", prompt)
 
@@ -132,6 +156,19 @@ class Homologator:
                 "Verifique se foram resolvidos."
             )
 
+        viking_section = ""
+        try:
+            viking_ctx = _viking.load_viking_context(self.project_path)
+            if viking_ctx.strip():
+                viking_section = f"\n\n## Restrições de domínio (Padrão Viking)\n{viking_ctx}"
+        except Exception:
+            pass
+
+        viking_checklist = (
+            "5. O código respeita as restrições de domínio do Padrão Viking (se definidas acima)?"
+            if viking_section else ""
+        )
+
         return f"""Você está fazendo homologação de código como um tech lead.
 
 ## Contexto
@@ -140,13 +177,14 @@ Descrição: {task.description}
 Tentativa de homologação: {attempt} de {task.max_homologation_attempts}
 Testes: {context.tests_passing} passando, {context.tests_failing} falhando
 {files_section}
-{previous_section}
+{previous_section}{viking_section}
 
 ## O que avaliar
 1. O código resolve o que a task pede? (verifique se os arquivos EXIGIDOS pela descrição foram criados)
 2. Há edge cases não cobertos pelos testes?
 3. O código é legível e segue boas práticas?
 4. Tem problemas de segurança ou performance óbvios?
+{viking_checklist}
 
 ## Formato de resposta (JSON estrito)
 Responda APENAS com JSON válido, sem markdown:

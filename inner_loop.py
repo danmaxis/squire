@@ -14,13 +14,14 @@ instância de CodingBackend).
 
 from __future__ import annotations
 
+import hashlib
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import config
 from backends import CodingBackend, create_backend
-from models import LLMContextSummary, Task
+from models import Effort, LLMContextSummary, Task
 
 
 @dataclass
@@ -65,18 +66,72 @@ class InnerLoop:
             prefix = f"┊{arrow}" if i == 0 else "┊ "
             print(f"[{ts}]   {prefix} {line[:120]}")
 
+    # ── Proteção de testes (Gap 6) ─────────────────────────────────
+
+    def snapshot_test_hashes(self) -> dict[str, str]:
+        """SHA256 de todos os test_*.py — tirado após fase RED como referência."""
+        return {
+            str(p): hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in self.project_path.rglob("test_*.py")
+            if not any(part in (".venv", "venv", "__pycache__", "node_modules")
+                       for part in p.parts)
+        }
+
+    def check_test_integrity(
+        self,
+        hashes_before: dict[str, str],
+    ) -> list[str]:
+        """Retorna lista de test_*.py modificados desde o snapshot."""
+        hashes_after = self.snapshot_test_hashes()
+        modified = []
+        for path, h in hashes_before.items():
+            if hashes_after.get(path) != h:
+                modified.append(path)
+        # Novos arquivos de teste criados pelo Executor também são suspeitos
+        for path in hashes_after:
+            if path not in hashes_before:
+                modified.append(path)
+        return modified
+
+    def revert_test_files(self, modified: list[str]) -> None:
+        """Reverte arquivos de teste modificados via git checkout."""
+        for path in modified:
+            try:
+                rel = Path(path).relative_to(self.project_path)
+                subprocess.run(
+                    ["git", "checkout", "--", str(rel)],
+                    cwd=str(self.project_path),
+                    capture_output=True,
+                )
+            except Exception:
+                pass
+
+    # ── Effort routing (Gap 4) ──────────────────────────────────────
+
+    @staticmethod
+    def _model_for_effort(effort: Effort) -> str:
+        return {
+            Effort.low:    config.MODEL_LOW,
+            Effort.medium: config.MODEL_MEDIUM,
+            Effort.high:   config.MODEL_HIGH,
+        }[effort]
+
+    # ── Execução principal ──────────────────────────────────────────
+
     def execute(
         self,
         task: Task,
         previous_context: LLMContextSummary | None = None,
         extra_instructions: str = "",
+        test_hashes: dict[str, str] | None = None,
     ) -> InnerLoopResult:
         """
         Uma iteração completa:
         1. Monta instrução com contexto da task + erros anteriores
-        2. Delega execução ao backend
-        3. Roda testes
-        4. Retorna resultado estruturado
+        2. Injeta progress.txt e contexto Viking se disponíveis
+        3. Delega execução ao backend (com modelo por effort)
+        4. Verifica integridade dos testes (se hashes fornecidos)
+        5. Roda testes e retorna resultado estruturado
         """
         instruction = self._build_instruction(task, previous_context, extra_instructions)
         self._vlog("→", instruction)
@@ -91,6 +146,7 @@ class InnerLoop:
                 "attempts": task.attempts,
                 "skip_homologation": task.skip_homologation,
                 "last_error": previous_context.last_error if previous_context else None,
+                "model": self._model_for_effort(task.effort),
             },
         )
 
@@ -100,6 +156,22 @@ class InnerLoop:
         if backend_result.agent_used:
             self._vlog("◆", f"agente: {backend_result.agent_used}")
         self._vlog("←", backend_result.raw_output)
+
+        # Verificar integridade dos arquivos de teste
+        if test_hashes is not None:
+            modified = self.check_test_integrity(test_hashes)
+            if modified:
+                rel_names = [Path(p).name for p in modified]
+                self.revert_test_files(modified)
+                return InnerLoopResult(
+                    success=False,
+                    error=(
+                        f"VIOLAÇÃO: Executor modificou arquivo(s) de teste protegido(s): "
+                        f"{', '.join(rel_names)}. "
+                        f"Alterações revertidas via git. "
+                        f"PROIBIDO modificar test_*.py — implemente apenas o código de produção."
+                    ),
+                )
 
         test_result = self._run_tests()
 
@@ -157,6 +229,24 @@ class InnerLoop:
 
         if extra_instructions:
             parts.extend(["", "## Instruções adicionais", extra_instructions])
+
+        # Injetar progress.txt se disponível (memória de longo prazo — padrão Ralph Loop)
+        try:
+            import progress as _progress
+            prog_text = _progress.load_progress(str(self.project_path.name))
+            if prog_text.strip():
+                parts.extend(["", "## Aprendizado de iterações anteriores", prog_text[:1500]])
+        except Exception:
+            pass
+
+        # Injetar contexto Viking se disponível (padrão Viking — /docs/viking/)
+        try:
+            import viking as _viking
+            viking_ctx = _viking.load_viking_context(self.project_path)
+            if viking_ctx.strip():
+                parts.extend(["", "## Restrições de domínio (Padrão Viking)", viking_ctx])
+        except Exception:
+            pass
 
         # A seção de formato só faz sentido para LiteLLM (que parseia output em texto)
         # Aider/OpenCode não precisam dela, mas não prejudica incluir

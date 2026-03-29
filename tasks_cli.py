@@ -16,7 +16,7 @@ from typing import Optional
 
 import checkpoint as ckpt
 import config
-from models import Subtask, Task, TaskList, TaskStatus
+from models import Effort, Subtask, Task, TaskList, TaskStatus, TestAuthor
 
 # ── Cores ──────────────────────────────────────────────────────────
 
@@ -165,6 +165,48 @@ def cmd_list(project_id: str) -> None:
     print(f"\n{DIM}Total: {total}  ✓ {done}  ✗ {blocked}  → {pending} pendente(s){RESET}\n")
 
 
+def _prompt_advanced_fields(
+    effort: Effort = Effort.medium,
+    tdd: bool = True,
+    test_author: TestAuthor = TestAuthor.claude,
+) -> tuple[Effort, bool, TestAuthor]:
+    """Pergunta campos avançados ao usuário. Enter aceita os padrões."""
+    try:
+        resp = input(f"  Configurar campos avançados? [y/N] ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        return effort, tdd, test_author
+
+    if resp != "y":
+        return effort, tdd, test_author
+
+    # effort
+    try:
+        v = input(f"  effort [low/medium/high] (padrão: {effort.value}): ").strip().lower()
+        if v in ("low", "medium", "high"):
+            effort = Effort(v)
+    except (EOFError, KeyboardInterrupt):
+        pass
+
+    # tdd
+    try:
+        v = input(f"  tdd [y/n] (padrão: {'y' if tdd else 'n'}): ").strip().lower()
+        if v in ("y", "n"):
+            tdd = v == "y"
+    except (EOFError, KeyboardInterrupt):
+        pass
+
+    # test_author (só relevante se tdd=True)
+    if tdd:
+        try:
+            v = input(f"  test_author [claude/local] (padrão: {test_author.value}): ").strip().lower()
+            if v in ("claude", "local"):
+                test_author = TestAuthor(v)
+        except (EOFError, KeyboardInterrupt):
+            pass
+
+    return effort, tdd, test_author
+
+
 def cmd_add(
     project_id: str,
     title: str,
@@ -173,6 +215,10 @@ def cmd_add(
     skip_homologation: bool = False,
     max_attempts: int = 10,
     max_homologation_attempts: int = 5,
+    effort: Effort = Effort.medium,
+    tdd: bool = True,
+    test_author: TestAuthor = TestAuthor.claude,
+    ask_advanced: bool = True,
 ) -> None:
     _load_project_or_exit(project_id)
     task_list = _load_tasks(project_id)
@@ -184,6 +230,9 @@ def cmd_add(
         print(f"{RED}✗{RESET} ID '{task_id}' já existe.", file=sys.stderr)
         sys.exit(1)
 
+    if ask_advanced:
+        effort, tdd, test_author = _prompt_advanced_fields(effort, tdd, test_author)
+
     task = Task(
         id=task_id,
         title=title,
@@ -191,10 +240,84 @@ def cmd_add(
         skip_homologation=skip_homologation,
         max_attempts=max_attempts,
         max_homologation_attempts=max_homologation_attempts,
+        effort=effort,
+        tdd=tdd,
+        test_author=test_author,
     )
     task_list.tasks.append(task)
     _save_tasks(project_id, task_list)
-    print(f"{GREEN}✓{RESET} Task '{task_id}' adicionada: {title}")
+
+    effort_str = _c(DIM, f"  [{effort.value}{'  tdd:' + test_author.value if tdd else '  no-tdd'}]")
+    print(f"{GREEN}✓{RESET} Task '{task_id}' adicionada: {title}{effort_str}")
+
+    # Oferecer atualizar SPEC.md
+    _offer_spec_update(project_id)
+
+
+def _offer_spec_update(project_id: str) -> None:
+    """Oferece atualizar SPEC.md após mudança nas tasks."""
+    spec_path = _get_spec_path(project_id)
+    if not spec_path.exists():
+        return
+    try:
+        resp = input("  Atualizar SPEC.md? [y/N] ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        return
+    if resp == "y":
+        cmd_spec_update(project_id)
+
+
+def _get_spec_path(project_id: str) -> "Path":
+    """Retorna o caminho do SPEC.md do projeto (dentro do repo do projeto)."""
+    from pathlib import Path
+    project = ckpt.load_project(project_id)
+    if project and project.repo_path:
+        return Path(project.repo_path) / "docs" / "SPEC.md"
+    return config.project_dir(project_id) / "SPEC.md"
+
+
+def cmd_spec_update(project_id: str) -> None:
+    """Regenera o SPEC.md a partir das tasks atuais via Claude."""
+    project = _load_project_or_exit(project_id)
+    task_list = _load_tasks(project_id)
+    spec_path = _get_spec_path(project_id)
+
+    existing_spec = ""
+    if spec_path.exists():
+        existing_spec = spec_path.read_text(encoding="utf-8")
+
+    tasks_summary = "\n".join(
+        f"- [{t.status.value}] {t.id}: {t.title}"
+        + (f" [{t.effort.value}]" if hasattr(t, "effort") else "")
+        + (" [tdd]" if getattr(t, "tdd", False) else "")
+        for t in task_list.tasks
+    )
+
+    existing_section = (
+        f"\n\nSPEC.md atual (atualize refletindo as mudanças):\n{existing_spec[:2000]}"
+        if existing_spec else ""
+    )
+
+    prompt = (
+        f"Gere (ou atualize) o SPEC.md do projeto abaixo com base nas tasks.\n\n"
+        f"Projeto: {project.name}\n"
+        f"Descrição: {project.description}\n"
+        f"Stack: {', '.join(project.stack) if project.stack else 'não especificado'}\n\n"
+        f"Tasks ({len(task_list.tasks)}):\n{tasks_summary}"
+        f"{existing_section}\n\n"
+        f"Escreva um SPEC.md narrativo em português cobrindo: objetivo, funcionalidades, "
+        f"stack, e lista de tasks com breve descrição de cada uma."
+    )
+
+    print(f"\n{CYAN}→{RESET} Gerando SPEC.md para '{project.name}'...\n")
+    raw = _call_claude(prompt, timeout=120)
+    if raw is None:
+        print(f"{RED}✗{RESET} Claude não respondeu.", file=sys.stderr)
+        return
+
+    spec_path.parent.mkdir(parents=True, exist_ok=True)
+    spec_path.write_text(raw, encoding="utf-8")
+    print(f"{GREEN}✓{RESET} SPEC.md salvo em {spec_path}")
 
 
 def cmd_edit(project_id: str, task_id: Optional[str] = None) -> None:
@@ -242,6 +365,7 @@ def cmd_edit(project_id: str, task_id: Optional[str] = None) -> None:
         task_list.tasks = [updated_task if t.id == task_id else t for t in task_list.tasks]
         _save_tasks(project_id, task_list)
         print(f"{GREEN}✓{RESET} Task '{task_id}' atualizada.")
+        _offer_spec_update(project_id)
 
     finally:
         os.unlink(tmp_path)
@@ -290,11 +414,13 @@ def cmd_split(project_id: str, task_id: str) -> None:
             f"Subdivida a seguinte task em subtasks menores e implementáveis de forma independente.\n\n"
             f"Projeto: {project.name}\n"
             f"Stack: {stack_str}\n"
-            f"Task: {task.title}\n"
+            f"Task: {task.title} [effort={task.effort.value}, tdd={task.tdd}]\n"
             f"Descrição: {task.description or '(sem descrição)'}\n"
             f"{feedback_section}\n\n"
+            f"Para cada subtask, defina effort e tdd individualmente (podem diferir da task pai).\n"
             f"Responda APENAS com JSON válido, sem markdown:\n"
-            f'{{\"subtasks\": [{{"title": "...", "description": "..."}}, ...]}}'
+            f'{{\"subtasks\": [{{"title": "...", "description": "...", '
+            f'"effort": "low|medium|high", "tdd": true|false}}, ...]}}'
         )
 
     def _call_and_parse(feedback: str = "") -> Optional[list[dict]]:
@@ -343,6 +469,10 @@ def cmd_split(project_id: str, task_id: str) -> None:
     # Salvar subtasks na task
     subtasks = []
     for i, st in enumerate(subtasks_data, 1):
+        try:
+            st_effort = Effort(st.get("effort", task.effort.value))
+        except ValueError:
+            st_effort = task.effort
         subtasks.append(Subtask(
             id=f"{task_id}-sub{i:02d}",
             title=st.get("title", f"Subtask {i}"),
@@ -396,6 +526,8 @@ def cmd_plan(project_id: str, desc: Optional[str] = None) -> None:
             f"Para tasks de setup/boilerplate sem necessidade de review de qualidade, use skip_homologation: true.\n\n"
             f"Responda APENAS com JSON válido, sem markdown:\n"
             f'{{"tasks": [{{"id": "task-001", "title": "...", "description": "...", '
+            f'"effort": "low|medium|high", "tdd": true|false, '
+            f'"test_author": "claude|local", '
             f'"max_attempts": 10, "max_homologation_attempts": 5, "skip_homologation": false}}, ...]}}'
         )
 
@@ -470,6 +602,17 @@ def cmd_plan(project_id: str, desc: Optional[str] = None) -> None:
         # Evitar colisão de IDs no modo append
         if mode == "a" and tid in existing_ids:
             tid = _next_task_id(TaskList(tasks=task_list.tasks + new_tasks))
+        # Parsear effort e test_author com fallback seguro
+        effort_val = raw_task.get("effort", "medium")
+        try:
+            effort = Effort(effort_val)
+        except ValueError:
+            effort = Effort.medium
+        test_author_val = raw_task.get("test_author", "claude")
+        try:
+            test_author = TestAuthor(test_author_val)
+        except ValueError:
+            test_author = TestAuthor.claude
         new_tasks.append(Task(
             id=tid,
             title=raw_task.get("title", "Sem título"),
@@ -477,6 +620,9 @@ def cmd_plan(project_id: str, desc: Optional[str] = None) -> None:
             max_attempts=raw_task.get("max_attempts", 10),
             max_homologation_attempts=raw_task.get("max_homologation_attempts", 5),
             skip_homologation=raw_task.get("skip_homologation", False),
+            effort=effort,
+            tdd=raw_task.get("tdd", True),
+            test_author=test_author,
         ))
 
     if mode == "r":
@@ -487,6 +633,14 @@ def cmd_plan(project_id: str, desc: Optional[str] = None) -> None:
     _save_tasks(project_id, task_list)
     action = "substituídas por" if mode == "r" else "adicionadas:"
     print(f"\n{GREEN}✓{RESET} Tasks {action} {len(new_tasks)} nova(s).")
+
+    # Oferecer salvar SPEC.md
+    try:
+        resp = input("\n  Salvar SPEC.md? [y/N] ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        resp = ""
+    if resp == "y":
+        cmd_spec_update(project_id)
 
 
 def _display_draft(tasks_data: list[dict]) -> None:
@@ -540,7 +694,20 @@ def main() -> None:
         skip = "--skip-homolog" in rest
         max_att = int(_get_flag(rest, "--max") or "10")
         max_hom = int(_get_flag(rest, "--max-homolog") or "5")
-        cmd_add(project_id, title, desc, task_id, skip, max_att, max_hom)
+        effort_str = _get_flag(rest, "--effort") or "medium"
+        try:
+            effort = Effort(effort_str)
+        except ValueError:
+            effort = Effort.medium
+        tdd = "--no-tdd" not in rest
+        test_author_str = _get_flag(rest, "--test-author") or "claude"
+        try:
+            test_author = TestAuthor(test_author_str)
+        except ValueError:
+            test_author = TestAuthor.claude
+        no_ask = "--no-ask" in rest
+        cmd_add(project_id, title, desc, task_id, skip, max_att, max_hom,
+                effort, tdd, test_author, ask_advanced=not no_ask)
 
     elif subcmd == "edit":
         if not args:
@@ -571,6 +738,12 @@ def main() -> None:
         desc = _get_flag(rest, "--desc")
         cmd_plan(project_id, desc)
 
+    elif subcmd == "spec":
+        if not args:
+            print(f"{RED}✗{RESET} Projeto obrigatório.", file=sys.stderr)
+            sys.exit(1)
+        cmd_spec_update(args[0])
+
     else:
         print(f"{RED}✗{RESET} Subcomando desconhecido: '{subcmd}'", file=sys.stderr)
         _print_help()
@@ -594,7 +767,8 @@ def _print_help() -> None:
 
   {CYAN}squire tasks{RESET} <projeto>                    Lista tasks (alias de list)
   {CYAN}squire tasks list{RESET}   <projeto>              Lista tasks com status
-  {CYAN}squire tasks add{RESET}    <projeto> --title "..." [--desc "..."] [--id "..."] [--skip-homolog] [--max N] [--max-homolog N]
+  {CYAN}squire tasks add{RESET}    <projeto> --title "..." [--desc "..."] [--id "..."] [--skip-homolog] [--max N] [--max-homolog N] [--effort low|medium|high] [--no-tdd] [--test-author claude|local] [--no-ask]
+  {CYAN}squire tasks spec{RESET}   <projeto>              Gera/atualiza SPEC.md via Claude
   {CYAN}squire tasks edit{RESET}   <projeto> [<id>]       Edita task no $EDITOR (sem id = edita tasks.json)
   {CYAN}squire tasks rm{RESET}     <projeto> <id>         Remove task por ID
   {CYAN}squire tasks split{RESET}  <projeto> <id>         Claude subdivide task em subtasks
