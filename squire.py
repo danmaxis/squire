@@ -26,6 +26,7 @@ import threading
 import time
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 import checkpoint as ckpt
 import config
@@ -104,50 +105,102 @@ class Squire:
     def _stop_heartbeat(self):
         self._heartbeat_stop.set()
 
-    # ── Limpeza de estado git pré-task ────────────────────────────
+    # ── Proteção de working tree ───────────────────────────────────
 
-    def _cleanup_git_state(self) -> None:
+    def _auto_snapshot_commit(self, task_id: str) -> None:
         """
-        Garante que o working tree do projeto está limpo antes de rodar o aider.
-        Limpa tanto arquivos staged quanto modificados no working tree.
+        Protege o working tree antes de cada task fazendo auto-commit de quaisquer
+        alterações não commitadas.
+
+        Isso previne que os agentes (opencode, litellm) revertam silenciosamente
+        trabalho anterior via `git checkout`. Toda alteração committada é recuperável
+        via `git log`.
+
+        Se o repo ainda não tem nenhum commit (HEAD não existe), apenas loga aviso
+        e retorna — não é possível commitar sem HEAD.
         """
         repo = self.project.repo_path
         try:
+            # Verificar se working tree está sujo (staged ou unstaged)
             status = subprocess.run(
-                ["git", "status", "--short"],
+                ["git", "status", "--porcelain"],
                 cwd=repo, capture_output=True, text=True, timeout=10,
             )
             if status.returncode != 0:
-                log(f"git status falhou em {repo} — pulando limpeza", "warn")
+                log(f"git status falhou em {repo} — pulando snapshot", "warn")
                 return
-            dirty = status.stdout.strip()
-            if not dirty:
+            if not status.stdout.strip():
                 return  # working tree limpo, nada a fazer
-            log(f"Git state sujo detectado ({len(dirty.splitlines())} arquivo(s)) — limpando", "warn")
-            # Verificar se o repo tem commits — sem HEAD, checkout/reset falham
+
+            n_files = len(status.stdout.strip().splitlines())
+            log(f"Working tree sujo ({n_files} arquivo(s)) — criando snapshot antes de {task_id}", "warn")
+
+            # Verificar se o repo tem commits — sem HEAD, git add/commit falham
             has_commits = subprocess.run(
                 ["git", "rev-parse", "--verify", "HEAD"],
                 cwd=repo, capture_output=True, timeout=5,
             ).returncode == 0
             if not has_commits:
-                log("Repo sem commits ainda — pulando limpeza do working tree", "info")
+                log("Repo sem commits ainda — snapshot adiado (HEAD não existe)", "info")
                 return
-            # Primeiro: unstage arquivos staged
-            subprocess.run(
-                ["git", "reset", "HEAD", "--", "."],
-                cwd=repo, capture_output=True, text=True, timeout=10,
+
+            subprocess.run(["git", "add", "-A"], cwd=repo, capture_output=True, timeout=15)
+            commit = subprocess.run(
+                ["git", "commit", "-m", f"chore: auto-snapshot before {task_id}"],
+                cwd=repo, capture_output=True, text=True, timeout=15,
             )
-            # Depois: restaurar working tree para HEAD
-            cleanup = subprocess.run(
-                ["git", "checkout", "--", "."],
-                cwd=repo, capture_output=True, text=True, timeout=10,
-            )
-            if cleanup.returncode == 0:
-                log("Working tree restaurado para HEAD", "ok")
+            if commit.returncode == 0:
+                log(f"Snapshot commitado: chore: auto-snapshot before {task_id}", "ok")
             else:
-                log(f"Falha ao limpar git: {cleanup.stderr[:100]}", "warn")
+                log(f"Falha ao commitar snapshot: {commit.stderr[:100]}", "warn")
         except Exception as e:
-            log(f"Erro ao verificar git state: {e}", "warn")
+            log(f"Erro ao criar snapshot: {e}", "warn")
+
+    def _commit_task_completion(self, task) -> None:
+        """
+        Commita todas as alterações da task após aprovação na homologação.
+
+        Garante que o trabalho aprovado está no git antes que o próximo agente
+        comece a trabalhar — impedindo que um `git checkout` do próximo ciclo
+        reverta o código recém-aprovado.
+        """
+        repo = self.project.repo_path
+        try:
+            status = subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=repo, capture_output=True, text=True, timeout=10,
+            )
+            if status.returncode != 0 or not status.stdout.strip():
+                return  # nada para commitar
+
+            has_commits = subprocess.run(
+                ["git", "rev-parse", "--verify", "HEAD"],
+                cwd=repo, capture_output=True, timeout=5,
+            ).returncode == 0
+
+            msg = f"feat: [{task.id}] {task.title[:60]}"
+            if not has_commits:
+                # Primeiro commit do repo
+                subprocess.run(["git", "add", "-A"], cwd=repo, capture_output=True, timeout=15)
+                commit = subprocess.run(
+                    ["git", "commit", "-m", msg],
+                    cwd=repo, capture_output=True, text=True, timeout=15,
+                )
+            else:
+                subprocess.run(["git", "add", "-A"], cwd=repo, capture_output=True, timeout=15)
+                commit = subprocess.run(
+                    ["git", "commit", "-m", msg],
+                    cwd=repo, capture_output=True, text=True, timeout=15,
+                )
+
+            if commit.returncode == 0:
+                log(f"Task commitada: {msg}", "ok")
+            elif "nothing to commit" in commit.stdout + commit.stderr:
+                log("Nada para commitar (working tree já limpo)", "info")
+            else:
+                log(f"Falha ao commitar task: {commit.stderr[:100]}", "warn")
+        except Exception as e:
+            log(f"Erro ao commitar task: {e}", "warn")
 
     # ── Buscar próxima task ────────────────────────────────────────
 
@@ -443,6 +496,217 @@ class Squire:
             task.attempts = 0
             self._run_inner_loop(task, homologation_feedback=last_feedback, test_hashes=test_hashes)
 
+    # ── Gate mecânico pré-homologação ─────────────────────────────
+
+    def _pre_homologation_checks(self, task) -> list[str]:
+        """
+        Verificações mecânicas multi-linguagem executadas antes de cada chamada ao Claude Code.
+
+        Se retornar uma lista não-vazia, o ciclo volta ao inner loop com as violations
+        como feedback — sem gastar uma chamada de rate limit.
+
+        Linguagens suportadas (auto-detectadas pelo arquivo de projeto):
+        - TypeScript  (tsconfig.json)
+        - Python      (pyproject.toml ou *.py na raiz)
+        - Go          (go.mod)
+        - Rust        (Cargo.toml)
+        - Zig         (build.zig)
+        - Java/Kotlin (build.gradle / build.gradle.kts / pom.xml)
+        - Ruby        (Gemfile)
+
+        Checks universais (todas as linguagens):
+        - Arquivo de teste: se task.tdd=True, deve existir pelo menos um test file
+        """
+        violations: list[str] = []
+        repo = Path(self.project.repo_path)
+
+        # ── Utilitário: diff das linhas adicionadas desde HEAD ──────
+        def _added_lines() -> list[str]:
+            try:
+                proc = subprocess.run(
+                    ["git", "diff", "HEAD", "--unified=0"],
+                    cwd=str(repo), capture_output=True, text=True, timeout=10,
+                )
+                return [
+                    l[1:]  # remove o '+' inicial
+                    for l in proc.stdout.splitlines()
+                    if l.startswith("+") and not l.startswith("+++")
+                ]
+            except Exception:
+                return []
+
+        # ── Utilitário: rodar comando e capturar falha ───────────────
+        def _run(cmd: list[str], timeout: int = 60) -> tuple[int, str]:
+            try:
+                proc = subprocess.run(
+                    cmd, cwd=str(repo),
+                    capture_output=True, text=True, timeout=timeout,
+                )
+                return proc.returncode, (proc.stdout + proc.stderr)
+            except FileNotFoundError:
+                return -1, ""  # ferramenta não instalada — não penalizar
+            except subprocess.TimeoutExpired:
+                return -1, ""  # timeout — não penalizar
+
+        # ── Universal: arquivos de teste (task.tdd=True) ────────────
+        if task.tdd:
+            _IGNORE = {".venv", "venv", "__pycache__", "node_modules", "dist",
+                       ".next", "target", "zig-out", "zig-cache"}
+            _TEST_PATTERNS = [
+                "test_*.py", "*_test.py",           # Python
+                "*.test.ts", "*.test.tsx",           # TypeScript/React
+                "*.spec.ts", "*.spec.tsx",           # TypeScript/React
+                "*.test.js", "*.spec.js",            # JavaScript
+                "*_test.go",                         # Go
+                "*_test.rs",                         # Rust (src/)
+                "*_test.zig", "*_test.zig",          # Zig
+                "*Test.java", "*Tests.java",         # Java
+                "*_spec.rb",                         # Ruby
+            ]
+            def _has_tests() -> bool:
+                for pat in _TEST_PATTERNS:
+                    for p in repo.rglob(pat):
+                        if not any(part in _IGNORE for part in p.parts):
+                            return True
+                return False
+            if not _has_tests():
+                violations.append(
+                    "Nenhum arquivo de teste encontrado (task.tdd=True). "
+                    "Crie testes antes de avançar para homologação."
+                )
+
+        # ── TypeScript ───────────────────────────────────────────────
+        if (repo / "tsconfig.json").exists():
+            tsc_bin = repo / "node_modules" / ".bin" / "tsc"
+            if tsc_bin.exists():
+                code, out = _run([str(tsc_bin), "--noEmit"])
+                if code not in (0, -1):
+                    violations.append(f"TypeScript errors (tsc --noEmit):\n{out[:500]}")
+
+            # Tipo 'any' introduzido — LLMs adicionam para silenciar erros de tipo
+            new_any = [l for l in _added_lines()
+                       if ": any" in l or "as any" in l or "<any>" in l]
+            if new_any:
+                violations.append(
+                    f"Tipo 'any' introduzido ({len(new_any)} ocorrência(s)). "
+                    f"Exemplo: {new_any[0].strip()[:100]}"
+                )
+
+        # ── Python ───────────────────────────────────────────────────
+        _PYTHON_IGNORE = {".venv", "venv", "__pycache__", "node_modules"}
+        _py_files = [
+            p for p in repo.rglob("*.py")
+            if not any(part in _PYTHON_IGNORE for part in p.parts)
+        ]
+        if (repo / "pyproject.toml").exists() or list(repo.glob("*.py")):
+            import ast as _ast
+            syntax_errors: list[str] = []
+            for py_file in _py_files:
+                try:
+                    _ast.parse(py_file.read_text(encoding="utf-8", errors="ignore"))
+                except SyntaxError as e:
+                    rel = str(py_file.relative_to(repo))
+                    syntax_errors.append(f"  {rel}:{e.lineno}: {e.msg}")
+            if syntax_errors:
+                violations.append(
+                    "Python syntax errors:\n" + "\n".join(syntax_errors[:5])
+                )
+
+            # '# type: ignore' introduzido — equivalente ao ': any' do TS
+            new_ignores = [l for l in _added_lines() if "# type: ignore" in l]
+            if new_ignores:
+                violations.append(
+                    f"'# type: ignore' introduzido ({len(new_ignores)} ocorrência(s)). "
+                    "Corrija o tipo em vez de silenciar o checker."
+                )
+
+        # ── Go ───────────────────────────────────────────────────────
+        if (repo / "go.mod").exists():
+            code, out = _run(["go", "build", "./..."])
+            if code not in (0, -1):
+                violations.append(f"Go build error:\n{out[:500]}")
+            else:
+                code2, out2 = _run(["go", "vet", "./..."], timeout=30)
+                if code2 not in (0, -1):
+                    violations.append(f"go vet:\n{out2[:300]}")
+
+        # ── Rust ─────────────────────────────────────────────────────
+        if (repo / "Cargo.toml").exists():
+            # cargo check: mais rápido que build (sem codegen), pega todos os erros de tipo
+            code, out = _run(["cargo", "check", "--message-format=short"], timeout=120)
+            if code not in (0, -1):
+                violations.append(f"Rust cargo check:\n{out[:500]}")
+            else:
+                # clippy: pega patterns problemáticos que LLMs introduzem
+                code2, out2 = _run(
+                    ["cargo", "clippy", "--", "-D", "warnings"],
+                    timeout=120,
+                )
+                if code2 not in (0, -1):
+                    violations.append(f"Rust clippy warnings (tratados como erros):\n{out2[:400]}")
+
+            # #[allow(warnings)] ou unsafe introduzidos para silenciar clippy
+            escape_lines = [
+                l for l in _added_lines()
+                if "#[allow(" in l or "unsafe {" in l or "unsafe fn " in l
+            ]
+            if escape_lines:
+                violations.append(
+                    f"'#[allow(...)]' ou 'unsafe' introduzido ({len(escape_lines)} ocorrência(s)). "
+                    f"Exemplo: {escape_lines[0].strip()[:100]}"
+                )
+
+        # ── Zig ──────────────────────────────────────────────────────
+        if (repo / "build.zig").exists():
+            code, out = _run(["zig", "build"], timeout=120)
+            if code not in (0, -1):
+                violations.append(f"Zig build error:\n{out[:500]}")
+
+            # zig fmt --check: formato canônico — LLMs frequentemente quebram
+            code2, out2 = _run(["zig", "fmt", "--check", "."], timeout=30)
+            if code2 not in (0, -1):
+                violations.append(f"Zig format check (zig fmt --check):\n{out2[:300]}")
+
+            # '_ = expr' para descartar erros — equivalente ao ': any'
+            discard_lines = [l for l in _added_lines()
+                             if l.strip().startswith("_ =") or "catch unreachable" in l]
+            if discard_lines:
+                violations.append(
+                    f"Erro descartado com '_ =' ou 'catch unreachable' "
+                    f"({len(discard_lines)} ocorrência(s)). "
+                    "Trate o erro explicitamente."
+                )
+
+        # ── Java / Kotlin ────────────────────────────────────────────
+        _has_gradle = (repo / "build.gradle").exists() or (repo / "build.gradle.kts").exists()
+        _has_maven  = (repo / "pom.xml").exists()
+        if _has_gradle:
+            gradlew = repo / "gradlew"
+            cmd = [str(gradlew), "compileJava", "--quiet"] if gradlew.exists() \
+                  else ["gradle", "compileJava", "--quiet"]
+            code, out = _run(cmd, timeout=120)
+            if code not in (0, -1):
+                violations.append(f"Gradle compile error:\n{out[:500]}")
+        elif _has_maven:
+            code, out = _run(["mvn", "compile", "-q"], timeout=120)
+            if code not in (0, -1):
+                violations.append(f"Maven compile error:\n{out[:500]}")
+
+        # ── Ruby ─────────────────────────────────────────────────────
+        if (repo / "Gemfile").exists():
+            rb_errors: list[str] = []
+            for rb_file in repo.rglob("*.rb"):
+                if any(part in {"vendor", "node_modules"} for part in rb_file.parts):
+                    continue
+                code, out = _run(["ruby", "-c", str(rb_file)], timeout=10)
+                if code not in (0, -1) and "Syntax OK" not in out:
+                    rel = str(rb_file.relative_to(repo))
+                    rb_errors.append(f"  {rel}: {out.strip()[:100]}")
+            if rb_errors:
+                violations.append("Ruby syntax errors:\n" + "\n".join(rb_errors[:5]))
+
+        return violations
+
     # ── Ciclo de rodadas (Ralph Loop) ─────────────────────────────
 
     def _run_homologation(self, task) -> bool:
@@ -454,6 +718,7 @@ class Squire:
         Se aprovado em qualquer rodada → True. Se esgotou max_homologation_attempts → False.
         """
         last_feedback = ""  # feedback acumulado da última rejeição
+        gate_failures = 0   # violações mecânicas consecutivas sem CC call
 
         # ── Fase RED: escrever testes antes da implementação ──
         test_hashes: dict[str, str] | None = None
@@ -507,6 +772,30 @@ class Squire:
 
             # Se rate limited, refina com inner loop enquanto aguarda
             self._wait_productively(task, last_feedback, test_hashes=test_hashes)
+
+            # Gate mecânico: verificar violations antes de gastar chamada de Claude Code.
+            # Máximo 2 gate-retries consecutivos para evitar loop infinito quando o
+            # inner loop não consegue corrigir as violations.
+            if not self.dry_run and gate_failures < 2:
+                violations = self._pre_homologation_checks(task)
+                if violations:
+                    gate_failures += 1
+                    log(
+                        f"Gate pré-homologação: {len(violations)} violation(s) "
+                        f"(tentativa {gate_failures}/2) — retornando ao inner loop",
+                        "warn",
+                    )
+                    for v in violations:
+                        log(f"  • {v[:120]}", "warn")
+                    last_feedback = (
+                        "## Violations detectadas pelo gate pré-homologação\n"
+                        "Corrija estes problemas antes que o código seja revisado:\n\n"
+                        + "\n\n".join(f"- {v}" for v in violations)
+                    )
+                    task.homologation_attempt -= 1  # desfazer incremento — não gastou CC
+                    continue
+                else:
+                    gate_failures = 0  # reset se passou no gate
 
             self.rate_limiter.record_call()
             self.stats.daily_claude_code_calls += 1
@@ -574,6 +863,31 @@ class Squire:
                     "error",
                 )
                 last_feedback = self._force_escalation(task, last_feedback)
+
+            # Escalação antecipada para effort:low: após 2 rejeições + loop, CC implementa direto.
+            # Para tasks simples que não estão convergindo, evita ciclos extras desnecessários.
+            from models import Effort
+            is_early_escalation = (
+                task.effort == Effort.low
+                and task.homologation_attempt >= 2
+                and self._is_looping(task)
+                and not self.dry_run
+            )
+            if is_early_escalation:
+                log("effort:low + 2 rejeições + loop → Claude Code implementa diretamente", "warn")
+                if self.rate_limiter.can_call():
+                    self.rate_limiter.record_call()
+                    self.stats.daily_claude_code_calls += 1
+                    self.session_cc_calls += 1
+                    files_written = self.escalation.implement_directly(
+                        task, self.cp.llm_context,
+                        rejection_context="\n".join(task.rejection_summaries[-3:]),
+                    )
+                    if files_written:
+                        log(f"Claude Code escreveu {len(files_written)} arquivo(s)", "ok")
+                        task.claude_code_assisted = True
+                        self.cp.llm_context.files_touched = files_written
+                        last_feedback = ""
 
             # Penúltima rodada com loop persistente: Claude Code implementa diretamente
             is_penultimate = task.homologation_attempt >= task.max_homologation_attempts - 1
@@ -647,13 +961,15 @@ class Squire:
                     summary=task.title,
                 )
 
-                # Garantir working tree limpo antes do aider
-                self._cleanup_git_state()
+                # Snapshot automático: commita alterações pendentes antes do agente iniciar
+                self._auto_snapshot_commit(task.id)
 
                 # ── Ciclo de rodadas: inner loop + homologação ──
                 homolog_ok = self._run_homologation(task)
 
                 if homolog_ok:
+                    # Commitar alterações aprovadas antes de avançar para a próxima task
+                    self._commit_task_completion(task)
                     task.status = TaskStatus.completed
                     task.completed_at = datetime.now(timezone.utc)
                     self.stats.tasks_completed_today += 1
@@ -662,6 +978,13 @@ class Squire:
                         summary=f"Aprovada na homologação #{task.homologation_attempt}",
                     )
                     log(f"Task concluída: [{task.id}] {task.title}", "ok")
+                    # Atualizar memória de longo prazo (padrão Ralph Loop)
+                    try:
+                        import progress as _progress
+                        _progress.generate_progress(self.project_id)
+                        log("progress.txt atualizado", "ok")
+                    except Exception as _pe:
+                        log(f"Falha ao atualizar progress.txt: {_pe}", "warn")
                     self._log_remaining_tasks()
                 else:
                     task.status = TaskStatus.blocked

@@ -43,9 +43,10 @@ LITELLM_API_KEY = os.getenv("SQUIRE_LITELLM_KEY", "sk-local")
 INNER_LOOP_MAX_ATTEMPTS = int(os.getenv("SQUIRE_INNER_MAX_ATTEMPTS", "10"))
 INNER_LOOP_TIMEOUT_SECONDS = int(os.getenv("SQUIRE_INNER_TIMEOUT", "1200"))
 
-# Backend de coding agent (litellm | aider | opencode)
+# Backend de coding agent (litellm | opencode)
+# DEPRECATED: 'aider' foi descontinuado em 2026-03-29 — use 'opencode' ou 'litellm'
 CODING_BACKEND = os.getenv("SQUIRE_CODING_BACKEND", "opencode")
-AIDER_BIN = os.getenv("SQUIRE_AIDER_BIN", "aider")
+AIDER_BIN = os.getenv("SQUIRE_AIDER_BIN", "aider")  # DEPRECATED — não tem mais efeito
 OPENCODE_BIN = os.getenv("SQUIRE_OPENCODE_BIN", "opencode")
 
 

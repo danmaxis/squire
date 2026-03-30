@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from backends import BackendResult, OpenCodeBackend, _is_source_file
+from backends import BackendResult, OpenCodeBackend, _is_source_file, create_backend
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -32,106 +32,182 @@ backend = OpenCodeBackend.__new__(OpenCodeBackend)  # instância sem __init__
 
 
 # ── TestOpenCodeAgentSelection ────────────────────────────────────────
+#
+# Lógica nova (2026-03-29): string matching substituído por regras estritas
+# para eliminar falsos positivos (ex: "getCheckpoint" → terminal, "fix" → debug).
+# Ver squire_feedback_session_2026-03-29.md.
 
 class TestOpenCodeAgentSelection:
 
+    # ── default: code ────────────────────────────────────────────────
+
     def test_default_retorna_code(self):
+        """Título genérico sem erros → code."""
         assert backend._select_agent(hint("Implementar listagem de projetos")) == "code"
 
     def test_vazio_retorna_code(self):
+        """dict vazio → code (default seguro)."""
         assert backend._select_agent({}) == "code"
 
-    # ── debug ─────────────────────────────────────────────────────────
+    def test_titulo_fix_sem_erro_retorna_code(self):
+        """'Fix' no título mas sem last_error e poucos attempts → code, não debug."""
+        assert backend._select_agent(hint("Fix typo in comment", attempts=0)) == "code"
 
-    def test_com_last_error_retorna_debug(self):
+    def test_titulo_fix_com_poucos_attempts_retorna_code(self):
+        """attempts=4 (abaixo de 6) sem last_error → code."""
+        assert backend._select_agent(hint("Fix validation", attempts=4)) == "code"
+
+    def test_titulo_check_em_meio_nao_e_terminal(self):
+        """'getCheckpoint' contém 'check' mas não COMEÇA com verbo → code, não terminal.
+        Regressão: substring matching antigo causava routing errado aqui."""
+        assert backend._select_agent(hint("Implement getCheckpoint function")) == "code"
+
+    def test_titulo_com_verbo_terminal_no_meio_e_code(self):
+        """'add migrate command' — 'migrate' não está no início → code."""
+        assert backend._select_agent(hint("add migrate command to CLI")) == "code"
+
+    # ── debug: apenas com stack trace real ───────────────────────────
+
+    def test_last_error_typeerror_retorna_debug(self):
+        """'TypeError' em last_error contém marcador → debug."""
         assert backend._select_agent(hint(last_error="TypeError: cannot read property")) == "debug"
 
-    def test_stuck_3_tentativas_retorna_debug(self):
-        assert backend._select_agent(hint("Adicionar endpoint", attempts=3)) == "debug"
+    def test_last_error_traceback_retorna_debug(self):
+        """'Traceback' em last_error → debug."""
+        assert backend._select_agent(hint(last_error="Traceback (most recent call last):")) == "debug"
 
-    def test_stuck_5_tentativas_retorna_debug(self):
-        assert backend._select_agent(hint("Qualquer coisa", attempts=5)) == "debug"
+    def test_last_error_assertionerror_retorna_debug(self):
+        """'AssertionError' em last_error → debug."""
+        assert backend._select_agent(hint("Fix login bug", last_error="AssertionError: expected True")) == "debug"
 
-    def test_titulo_fix_com_erro_retorna_debug(self):
-        assert backend._select_agent(hint("Fix login bug", last_error="AssertionError")) == "debug"
+    def test_last_error_syntaxerror_retorna_debug(self):
+        """'SyntaxError' em last_error → debug."""
+        assert backend._select_agent(hint("Corrigir parser", last_error="SyntaxError: unexpected token")) == "debug"
 
-    def test_titulo_corrigir_com_erro_retorna_debug(self):
-        assert backend._select_agent(hint("Corrigir falha no parser", last_error="SyntaxError")) == "debug"
+    def test_last_error_cannot_find_retorna_debug(self):
+        """'cannot find' em last_error (erro TS common) → debug."""
+        assert backend._select_agent(hint(last_error="cannot find module './foo'")) == "debug"
 
-    def test_titulo_fix_sem_erro_sem_tentativas_nao_retorna_debug(self):
-        # Fix no título mas sem erro e poucos attempts → code (não garante debug sem contexto)
-        result = backend._select_agent(hint("Fix typo in comment", attempts=0))
-        assert result == "code"
+    def test_last_error_is_not_defined_retorna_debug(self):
+        """'is not defined' em last_error (ReferenceError JS) → debug."""
+        assert backend._select_agent(hint(last_error="foo is not defined")) == "debug"
 
-    def test_titulo_fix_com_muitas_tentativas_retorna_debug(self):
-        assert backend._select_agent(hint("Fix validation", attempts=4)) == "debug"
+    def test_last_error_generico_sem_marcador_nao_e_debug(self):
+        """'0 passed, 3 failed' não é stack trace → code (não debug)."""
+        assert backend._select_agent(hint(last_error="0 passed, 3 failed")) == "code"
 
-    # ── terminal ──────────────────────────────────────────────────────
+    def test_last_error_connection_refused_nao_e_debug(self):
+        """'Connection refused' não contém marcadores de stack trace → não debug."""
+        # Regressão: lógica anterior teria enviado para debug com qualquer last_error
+        result = backend._select_agent(hint("Run migration script", last_error="Connection refused"))
+        assert result != "debug"
 
-    def test_keyword_migration_retorna_terminal(self):
+    def test_6_attempts_sem_erro_retorna_debug(self):
+        """attempts >= 6 sem last_error → debug (stuck sem erro explícito)."""
+        assert backend._select_agent(hint("Qualquer coisa", attempts=6)) == "debug"
+
+    def test_7_attempts_retorna_debug(self):
+        """attempts=7 → debug."""
+        assert backend._select_agent(hint("Outra task", attempts=7)) == "debug"
+
+    def test_5_attempts_sem_erro_retorna_code(self):
+        """attempts=5 (abaixo do threshold de 6) → code."""
+        assert backend._select_agent(hint("Qualquer coisa", attempts=5)) == "code"
+
+    def test_3_attempts_sem_erro_retorna_code(self):
+        """attempts=3 → code (threshold é 6)."""
+        assert backend._select_agent(hint("Adicionar endpoint", attempts=3)) == "code"
+
+    # ── terminal: título COMEÇA com verbo operacional ─────────────────
+
+    def test_run_retorna_terminal(self):
+        """Título começando com 'run' → terminal."""
         assert backend._select_agent(hint("Run database migrations")) == "terminal"
 
-    def test_keyword_seed_retorna_terminal(self):
+    def test_migrate_retorna_terminal(self):
+        """Título começando com 'migrate' → terminal."""
+        assert backend._select_agent(hint("Migrate schema to v2")) == "terminal"
+
+    def test_seed_retorna_terminal(self):
+        """Título começando com 'seed' → terminal."""
         assert backend._select_agent(hint("Seed initial data")) == "terminal"
 
-    def test_keyword_script_retorna_terminal(self):
-        assert backend._select_agent(hint("Execute setup script")) == "terminal"
+    def test_init_retorna_terminal(self):
+        """Título começando com 'init' → terminal."""
+        assert backend._select_agent(hint("Init project structure")) == "terminal"
 
-    def test_keyword_ambiente_retorna_terminal(self):
-        assert backend._select_agent(hint("Verificar ambiente de desenvolvimento")) == "terminal"
+    def test_deploy_retorna_terminal(self):
+        """Título começando com 'deploy' → terminal."""
+        assert backend._select_agent(hint("Deploy to staging")) == "terminal"
 
-    def test_keyword_banco_retorna_terminal(self):
-        assert backend._select_agent(hint("", description="Inicializar banco de dados")) == "terminal"
+    def test_start_retorna_terminal(self):
+        """Título começando com 'start' → terminal."""
+        assert backend._select_agent(hint("Start development server")) == "terminal"
 
-    # ── build ─────────────────────────────────────────────────────────
+    def test_stop_retorna_terminal(self):
+        """Título começando com 'stop' → terminal."""
+        assert backend._select_agent(hint("Stop background workers")) == "terminal"
 
-    def test_keyword_setup_retorna_build(self):
-        assert backend._select_agent(hint("Setup inicial do projeto")) == "build"
+    def test_restart_retorna_terminal(self):
+        """Título começando com 'restart' → terminal."""
+        assert backend._select_agent(hint("Restart the queue processor")) == "terminal"
 
-    def test_keyword_dockerfile_retorna_build(self):
-        assert backend._select_agent(hint("Criar Dockerfile para produção")) == "build"
+    def test_titulo_sem_verbo_exato_nao_e_terminal(self):
+        """'Execute setup script' — 'execute' não está na lista → code."""
+        assert backend._select_agent(hint("Execute setup script")) == "code"
 
-    def test_keyword_scaffold_retorna_build(self):
-        assert backend._select_agent(hint("Scaffold estrutura do projeto")) == "build"
+    def test_titulo_verificar_nao_e_terminal(self):
+        """'Verificar ambiente' — verbo PT não na lista → code."""
+        assert backend._select_agent(hint("Verificar ambiente de desenvolvimento")) == "code"
 
-    def test_keyword_tsconfig_retorna_build(self):
-        assert backend._select_agent(hint("", description="Configurar tsconfig.json")) == "build"
+    def test_descricao_banco_sem_verbo_no_titulo_nao_e_terminal(self):
+        """Desc 'Inicializar banco' mas title="" → new logic usa só o title → code."""
+        assert backend._select_agent(hint("", description="Inicializar banco de dados")) == "code"
 
-    def test_keyword_boilerplate_retorna_build(self):
-        assert backend._select_agent(hint("Criar boilerplate Next.js")) == "build"
+    # ── build: título exatamente igual ao conjunto ────────────────────
 
-    # ── plan ──────────────────────────────────────────────────────────
+    def test_scaffold_project_exato_retorna_build(self):
+        """'scaffold project' (exato, em inglês) → build."""
+        assert backend._select_agent(hint("scaffold project")) == "build"
 
-    def test_skip_homolog_com_design_retorna_plan(self):
-        assert backend._select_agent(hint("Design da arquitetura de módulos", skip_homologation=True)) == "plan"
+    def test_setup_project_exato_retorna_build(self):
+        """'setup project' (exato) → build."""
+        assert backend._select_agent(hint("setup project")) == "build"
 
-    def test_skip_homolog_com_arquitetura_retorna_plan(self):
-        assert backend._select_agent(hint("Definir arquitetura do sistema", skip_homologation=True)) == "plan"
+    def test_add_dockerfile_exato_retorna_build(self):
+        """'add dockerfile' (exato) → build."""
+        assert backend._select_agent(hint("add dockerfile")) == "build"
 
-    def test_skip_homolog_sem_keyword_design_nao_retorna_plan(self):
-        # skip_homolog mas sem keyword de design → code (não é um plano, é só boilerplate simples)
-        result = backend._select_agent(hint("Criar arquivo README", skip_homologation=True))
-        assert result != "plan"
+    def test_configure_ci_exato_retorna_build(self):
+        """'configure ci' (exato) → build."""
+        assert backend._select_agent(hint("configure ci")) == "build"
 
-    def test_design_sem_skip_homolog_nao_retorna_plan(self):
-        # Keyword de design mas sem skip_homologation → code (será homologado normalmente)
-        result = backend._select_agent(hint("Design da API"))
-        assert result != "plan"
+    def test_titulo_setup_em_pt_nao_e_build(self):
+        """'Setup inicial do projeto' (PT, não exato) → code."""
+        assert backend._select_agent(hint("Setup inicial do projeto")) == "code"
 
-    # ── prioridade de regras ───────────────────────────────────────────
+    def test_titulo_criar_dockerfile_nao_e_build(self):
+        """'Criar Dockerfile para produção' (PT) → code."""
+        assert backend._select_agent(hint("Criar Dockerfile para produção")) == "code"
 
-    def test_erro_tem_prioridade_sobre_terminal(self):
-        # Tem keyword de terminal mas tem last_error → debug ganha
-        result = backend._select_agent(hint("Run migration script", last_error="Connection refused"))
-        assert result == "debug"
+    def test_titulo_scaffold_estrutura_nao_e_build(self):
+        """'Scaffold estrutura do projeto' (não exato) → code."""
+        assert backend._select_agent(hint("Scaffold estrutura do projeto")) == "code"
 
-    def test_erro_tem_prioridade_sobre_build(self):
-        result = backend._select_agent(hint("Setup projeto", last_error="npm ERR!"))
+    # ── prioridade: debug > terminal > build ──────────────────────────
+
+    def test_stack_trace_tem_prioridade_sobre_terminal(self):
+        """Stack trace em last_error → debug, mesmo que título comece com 'run'."""
+        result = backend._select_agent(hint("Run migration", last_error="TypeError: x is null"))
         assert result == "debug"
 
     def test_terminal_tem_prioridade_sobre_build(self):
-        # Ambos: seed (terminal) e install (build) → terminal ganha primeiro
-        result = backend._select_agent(hint("Seed and install dependencies"))
+        """'seed' no início → terminal, mesmo se tivesse match de build."""
+        assert backend._select_agent(hint("seed and install dependencies")) == "terminal"
+
+    def test_last_error_sem_marcador_nao_bloqueia_terminal(self):
+        """last_error sem marcador de stack trace + título terminal → terminal."""
+        result = backend._select_agent(hint("Run migration script", last_error="Connection refused"))
         assert result == "terminal"
 
 
@@ -193,7 +269,9 @@ class TestOpenCodeBackendAgentUsed:
 
         assert result.agent_used == "debug"
 
-    def test_agent_used_build_keyword(self, tmp_path):
+    def test_agent_used_code_para_titulo_setup_pt(self, tmp_path):
+        """'Setup inicial do projeto com Dockerfile' (PT, não exato) → agent_used = 'code'.
+        Regressão: lógica antiga retornava 'build' por substring matching."""
         b = OpenCodeBackend(opencode_bin="opencode")
         task_hint = hint("Setup inicial do projeto com Dockerfile")
 
@@ -202,6 +280,23 @@ class TestOpenCodeBackendAgentUsed:
              patch.object(b, "_git_diff_files", return_value=[]):
             result = b.execute_instruction(
                 instruction="inicializar",
+                project_path=tmp_path,
+                timeout=30,
+                task_hint=task_hint,
+            )
+
+        assert result.agent_used == "code"
+
+    def test_agent_used_build_para_titulo_exato(self, tmp_path):
+        """'setup project' (exato) → agent_used = 'build'."""
+        b = OpenCodeBackend(opencode_bin="opencode")
+        task_hint = hint("setup project")
+
+        with patch("backends.subprocess.run", return_value=self._make_proc()), \
+             patch("backends._LLMLock", return_value=self._mock_lock()), \
+             patch.object(b, "_git_diff_files", return_value=[]):
+            result = b.execute_instruction(
+                instruction="scaffold",
                 project_path=tmp_path,
                 timeout=30,
                 task_hint=task_hint,
@@ -342,3 +437,39 @@ class TestGitDiffFilesFilter:
             files = b._git_diff_files(tmp_path)
 
         assert set(files) == {"src/index.ts", "package.json", "tsconfig.json"}
+
+
+# ── TestAiderDeprecation ─────────────────────────────────────────────
+
+class TestAiderDeprecation:
+    """
+    O backend 'aider' foi descontinuado em 2026-03-29 devido a falhas críticas
+    (overwrite de tsconfig.json, artefatos .js, oscilação em 10 tentativas).
+    create_backend('aider') deve levantar ValueError com mensagem clara.
+    """
+
+    def test_create_backend_aider_levanta_value_error(self):
+        """create_backend('aider') deve levantar ValueError."""
+        with pytest.raises(ValueError):
+            create_backend("aider")
+
+    def test_mensagem_deprecacao_menciona_alternativas(self):
+        """Mensagem de erro deve mencionar 'opencode' ou 'litellm' como alternativas."""
+        with pytest.raises(ValueError, match=r"opencode|litellm"):
+            create_backend("aider")
+
+    def test_mensagem_deprecacao_menciona_data(self):
+        """Mensagem de erro deve mencionar a data de deprecação (2026-03-29)."""
+        with pytest.raises(ValueError, match=r"2026-03-29"):
+            create_backend("aider")
+
+    def test_opencode_ainda_funciona(self):
+        """create_backend('opencode') não deve levantar exceção."""
+        backend_instance = create_backend("opencode")
+        assert isinstance(backend_instance, OpenCodeBackend)
+
+    def test_litellm_ainda_funciona(self):
+        """create_backend('litellm') não deve levantar exceção."""
+        from backends import LiteLLMBackend
+        backend_instance = create_backend("litellm")
+        assert isinstance(backend_instance, LiteLLMBackend)

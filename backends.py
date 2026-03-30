@@ -318,174 +318,6 @@ class LiteLLMBackend(CodingBackend):
         full_path.write_text(content, encoding="utf-8")
 
 
-# ── Aider Backend ──────────────────────────────────────────────────
-
-class AiderBackend(CodingBackend):
-    """
-    Backend que usa o CLI do aider para implementação.
-
-    Aider acessa o filesystem e git diretamente — não precisamos parsear
-    output. Arquivos modificados são detectados via `git diff --name-only`.
-
-    Flags usadas:
-    - --message: instrução em texto
-    - --no-auto-commits: crítico — não commitamos aqui, o orquestrador decide
-    - --yes: aceita confirmações automáticas (modo não-interativo)
-    - --no-pretty --no-stream: output limpo, sem ANSI codes, sem streaming
-    - --map-tokens 0: desativa repo-map (desnecessário para instruções focadas)
-    - --lint-cmd / --auto-lint: validação sintática automática após cada edição
-    """
-
-    def __init__(self, aider_bin: str = config.AIDER_BIN):
-        self.aider_bin = aider_bin
-
-    def _detect_lint_cmd(self, project_path: Path) -> str | None:
-        """Detecta o linter adequado para o projeto."""
-        if (project_path / "tsconfig.json").exists():
-            return "npx --no tsc --noEmit"
-        # Verifica se é projeto Python com arquivos .py
-        if any(project_path.glob("*.py")):
-            return "python3 -m py_compile"
-        return None
-
-    def execute_instruction(
-        self,
-        instruction: str,
-        project_path: Path,
-        timeout: int,
-        task_hint: dict | None = None,
-    ) -> BackendResult:
-        cmd = [
-            self.aider_bin,
-            "--message", instruction,
-            "--no-auto-commits",
-            "--yes",
-            "--no-pretty",
-            "--no-stream",
-            "--map-tokens", "0",
-        ]
-
-        lint_cmd = self._detect_lint_cmd(project_path)
-        if lint_cmd:
-            cmd += ["--lint-cmd", lint_cmd, "--auto-lint"]
-        with _LLMLock():
-            try:
-                proc = subprocess.run(
-                    cmd,
-                    cwd=str(project_path),
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout,
-                )
-                raw_output = proc.stdout + proc.stderr
-                if proc.returncode != 0 and not proc.stdout.strip():
-                    return BackendResult(
-                        raw_output=raw_output,
-                        error=f"aider exited {proc.returncode}: {proc.stderr[:300]}",
-                    )
-            except FileNotFoundError:
-                return BackendResult(error=f"aider not found: {self.aider_bin}")
-            except subprocess.TimeoutExpired:
-                return BackendResult(error=f"aider timed out ({timeout}s)")
-
-        sanitized = self._sanitize_workspace(project_path)
-        if sanitized:
-            # Logar artefatos removidos para diagnóstico
-            import sys
-            print(f"[sanitize] {len(sanitized)} artefato(s) do aider removidos/corrigidos",
-                  file=sys.stderr)
-            for item in sanitized[:5]:  # máx 5 no log para não poluir
-                print(f"  {item}", file=sys.stderr)
-
-        files_touched = self._git_diff_files(project_path)
-        return BackendResult(files_touched=files_touched, raw_output=raw_output)
-
-    def _git_diff_files(self, project_path: Path) -> list[str]:
-        """Lista arquivos modificados/criados desde o último commit via git diff.
-
-        Cobre três casos:
-        - working-tree vs HEAD (modificados mas não staged)
-        - staged vs HEAD (git add feito mas não commitado)
-        - untracked (arquivos novos não adicionados ao git)
-
-        Filtra para arquivos de código/config relevantes — exclui node_modules,
-        dist e similares para não inflar o prompt de homologação.
-        """
-        files: list[str] = []
-        try:
-            for cmd in (
-                ["git", "diff", "--name-only", "HEAD"],           # working-tree
-                ["git", "diff", "--name-only", "--cached", "HEAD"],  # staged
-                ["git", "ls-files", "--others", "--exclude-standard"],  # untracked
-            ):
-                proc = subprocess.run(
-                    cmd, cwd=str(project_path),
-                    capture_output=True, text=True, timeout=15,
-                )
-                files.extend(f.strip() for f in proc.stdout.splitlines() if f.strip())
-            return [f for f in dict.fromkeys(files) if _is_source_file(f)]
-        except Exception:
-            return []
-
-    def _sanitize_workspace(self, project_path: Path) -> list[str]:
-        """
-        Remove artefatos inválidos que o aider às vezes cria:
-
-        1. Arquivos com '(' ou ')' no nome — resultam de edições com
-           verbose mode ativo (ex: "route.ts (GET)", "route.ts (COPY)").
-
-        2. Arquivos de código que começam com ``` (fence markdown gravado
-           literalmente) — o aider às vezes confunde o conteúdo de resposta
-           do modelo com o arquivo propriamente dito.
-
-        Retorna lista de paths relativos removidos ou corrigidos.
-        """
-        affected: list[str] = []
-        git_dir = project_path / ".git"
-
-        # 1. Arquivos com parênteses no nome
-        for path in project_path.rglob("*"):
-            if path.is_file() and not path.is_relative_to(git_dir):
-                if "(" in path.name or ")" in path.name:
-                    try:
-                        rel = str(path.relative_to(project_path))
-                        path.unlink()
-                        affected.append(f"[removido] {rel}")
-                    except Exception:
-                        pass
-
-        # 2. Arquivos de código que começam com cerca markdown
-        _CODE_EXTENSIONS = {
-            ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
-            ".py", ".css", ".scss", ".json", ".yaml", ".yml",
-        }
-        for path in project_path.rglob("*"):
-            if not path.is_file() or path.is_relative_to(git_dir):
-                continue
-            if path.suffix not in _CODE_EXTENSIONS:
-                continue
-            try:
-                content = path.read_text(encoding="utf-8", errors="ignore")
-                if not content.lstrip().startswith("```"):
-                    continue
-                lines = content.split("\n")
-                # Remove linha de abertura da fence
-                if lines and lines[0].strip().startswith("```"):
-                    lines = lines[1:]
-                # Remove linha de fechamento da fence (última não-vazia)
-                while lines and not lines[-1].strip():
-                    lines.pop()
-                if lines and lines[-1].strip() == "```":
-                    lines.pop()
-                path.write_text("\n".join(lines), encoding="utf-8")
-                rel = str(path.relative_to(project_path))
-                affected.append(f"[fence removida] {rel}")
-            except Exception:
-                pass
-
-        return affected
-
-
 # ── OpenCode Backend ───────────────────────────────────────────────
 
 class OpenCodeBackend(CodingBackend):
@@ -503,50 +335,54 @@ class OpenCodeBackend(CodingBackend):
         self.opencode_bin = opencode_bin
 
     def _select_agent(self, task_hint: dict) -> str:
-        """Seleciona o agente opencode mais adequado para o contexto da task."""
-        title = (task_hint.get("title") or "").lower()
-        desc = (task_hint.get("description") or "").lower()
-        combined = title + " " + desc
-        last_error = task_hint.get("last_error")
+        """
+        Seleciona o agente opencode mais adequado para o contexto da task.
+
+        Regras (em ordem de prioridade):
+        1. Debug — apenas quando last_error contém marcadores de stack trace real
+        2. Terminal — apenas quando o título COMEÇA com verbo operacional explícito
+        3. Build — apenas para títulos que são exatamente uma tarefa de infra pura
+        4. Debug — fallback quando LLM está genuinamente preso (>= 6 tentativas sem erro)
+        5. Code — default seguro para qualquer implementação de feature
+
+        Histórico: a lógica anterior de substring matching causou falsos positivos
+        críticos ("check" dentro de "getCheckpoint" → terminal; "fix" + qualquer descrição
+        → debug na 1ª tentativa). Ver squire_feedback_session_2026-03-29.md.
+        """
+        title = (task_hint.get("title") or "").lower().strip()
+        last_error = task_hint.get("last_error") or ""
         attempts = task_hint.get("attempts", 0)
-        skip_homolog = task_hint.get("skip_homologation", False)
 
-        # 1. Keywords de debug no título/descrição + erro presente → debug
-        if any(k in combined for k in ("bug", "fix", "corrig", "falh", "error", "erro")):
-            if last_error or attempts >= 3:
-                return "debug"
-
-        # 2. Erro presente (qualquer task) → debug
-        if last_error:
+        # 1. Debug: só quando last_error contém marcadores de stack trace real.
+        #    Contagem de falhas de teste ("0 passed, 3 failed") NÃO é suficiente.
+        _STACK_MARKERS = (
+            "traceback", "error:", "exception", " at ", "syntaxerror",
+            "typeerror", "referenceerror", "nameerror", "assertionerror",
+            "cannot find", "is not defined", "has no attribute",
+        )
+        if last_error and any(m in last_error.lower() for m in _STACK_MARKERS):
             return "debug"
 
-        # 3. Terminal: operações de runtime sem edição de código
-        if any(k in combined for k in (
-            "migrat", "seed", "script", "environment", "ambient",
-            "verif", "check", "init db", "database", "banco",
-        )):
+        # 2. Terminal: só quando o título COMEÇA com verbo operacional explícito.
+        #    Evita falsos positivos como "getCheckpoint" (contém "check") ou
+        #    "fix database query" (contém "database").
+        if re.match(r"^(run|migrate|seed|init|deploy|start|stop|restart)\b", title):
             return "terminal"
 
-        # 4. Build: infra, dependências, config de projeto
-        if any(k in combined for k in (
-            "scaffold", "setup", "config", "dockerfile", "package",
-            "dependenc", "install", "tsconfig", "estrutura", "boilerplate",
-            "makefile", "ci/cd", "vite", "webpack",
-        )):
+        # 3. Build: só para tarefas cujo título é exatamente uma operação de infra pura.
+        _BUILD_TITLES = {
+            "scaffold project", "setup project", "configure ci",
+            "add dockerfile", "setup docker", "configure webpack",
+            "configure vite", "init project",
+        }
+        if title in _BUILD_TITLES:
             return "build"
 
-        # 5. Plan: design/arquitetura em tasks de planejamento explícito
-        if skip_homolog and any(k in combined for k in (
-            "design", "arquitet", "plan", "estrutur", "decid", "defin",
-            "architect", "structur",
-        )):
-            return "plan"
-
-        # 6. Stuck sem erro explícito → debug
-        if attempts >= 3:
+        # 4. Stuck sem erro explícito: debug apenas após muitas tentativas.
+        if attempts >= 6:
             return "debug"
 
-        # 7. Default: implementação de feature
+        # 5. Default seguro: code agent para toda implementação de feature.
         return "code"
 
     def execute_instruction(
@@ -637,9 +473,14 @@ def create_backend(name: str, **kwargs) -> CodingBackend:
     if name == "litellm":
         return LiteLLMBackend(**kwargs)
     if name == "aider":
-        return AiderBackend(**kwargs)
+        raise ValueError(
+            "Backend 'aider' foi descontinuado (2026-03-29). "
+            "Use 'opencode' ou 'litellm'. "
+            "Motivo: aider sobrescreveu tsconfig.json, criou artefatos .js e oscilou "
+            "sem convergir em sessão real. Ver squire_feedback_session_2026-03-29.md."
+        )
     if name == "opencode":
         return OpenCodeBackend(**kwargs)
     raise ValueError(
-        f"Backend desconhecido: '{name}'. Use 'litellm', 'aider' ou 'opencode'."
+        f"Backend desconhecido: '{name}'. Use 'litellm' ou 'opencode'."
     )
