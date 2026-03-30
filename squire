@@ -505,6 +505,7 @@ cmd_help() {
     echo -e "  ${CYAN}squire tasks rm${RESET}     <projeto> <id>     Remove task por ID"
     echo -e "  ${CYAN}squire tasks split${RESET}  <projeto> <id>     Claude subdivide task em subtasks"
     echo -e "  ${CYAN}squire tasks plan${RESET}   <projeto> [--desc \"...\"]  Claude planeja tasks (rascunho + refinamento)"
+    echo -e "  ${CYAN}squire rm${RESET} <projeto>              Remove projeto (confirmação dupla: nome + palavra aleatória)"
     echo -e "  ${CYAN}squire projects${RESET}            Lista projetos disponíveis"
     echo -e "  ${CYAN}squire new${RESET} <projeto>              Cria projeto novo"
     echo -e "  ${CYAN}squire new${RESET} <projeto> --repo <path> --name <nome> --stack <csv> --backend <aider|litellm>"
@@ -534,6 +535,7 @@ case "$CMD" in
     unlock)   cmd_unlock ;;
     unblock)  cmd_unblock "$@" ;;
     reset)    cmd_reset "$@" ;;
+    rm)       run_squire rm "$@" ;;
     projects) cmd_projects ;;
     new)      cmd_new "$@" ;;
     tasks)    cmd_tasks "$@" ;;
