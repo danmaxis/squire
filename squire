@@ -338,7 +338,7 @@ cmd_new() {
         exit 1
     fi
 
-    local repo_path="" name="" stack="typescript" backend="aider"
+    local repo_path="" name="" stack="typescript" backend="opencode"
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
