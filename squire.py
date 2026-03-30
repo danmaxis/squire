@@ -12,14 +12,17 @@ Ciclo de vida:
 4. Ao final, libera lock e atualiza stats
 
 Uso:
-    python squire.py <project-id>
-    python squire.py <project-id> --resume   # retoma de crash
-    python squire.py <project-id> --dry-run   # mostra o que faria
+    python squire.py <project-id>                    # execução normal
+    python squire.py <project-id> --resume            # retoma de crash
+    python squire.py <project-id> --dry-run           # mostra o que faria
+    python squire.py rm <project-id>                  # remove projeto (com confirmação)
 """
 
 from __future__ import annotations
 
 import argparse
+import random
+import shutil
 import subprocess
 import sys
 import threading
@@ -1081,7 +1084,70 @@ class Squire:
 
 # ── Entrypoint ─────────────────────────────────────────────────────
 
+# Palavras do alfabeto NATO — fáceis de soletrar e difíceis de confirmar por acidente.
+_CONFIRM_WORDS = [
+    "alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf",
+    "hotel", "india", "juliet", "kilo", "lima", "mike", "november",
+    "oscar", "papa", "quebec", "romeo", "sierra", "tango", "uniform",
+    "victor", "whiskey", "xray", "yankee", "zulu",
+]
+
+
+def cmd_remove(project_id: str) -> None:
+    """
+    Remove um projeto do estado do squire após confirmação dupla.
+
+    O que é removido: apenas o diretório de estado em STATE_ROOT/projects/<project_id>.
+    O repositório de código (repo_path) NÃO é tocado.
+    """
+    state_dir = config.project_dir(project_id)
+
+    if not state_dir.exists():
+        print(f"Projeto '{project_id}' não encontrado em {config.PROJECTS_DIR}.")
+        sys.exit(1)
+
+    # Mostrar o que será deletado
+    files = list(state_dir.iterdir())
+    print(f"\n\033[1;33m⚠  Remoção de projeto: {project_id}\033[0m")
+    print(f"   Diretório de estado: {state_dir}")
+    print(f"   Arquivos: {', '.join(f.name for f in sorted(files)) or '(vazio)'}")
+
+    # Tentar exibir o repo_path do project.json para o usuário saber o que NÃO será deletado
+    project = ckpt.load_project(project_id)
+    if project and project.repo_path:
+        print(f"   Repositório de código \033[2m(não será removido)\033[0m: {project.repo_path}")
+
+    # Gerar palavra aleatória de confirmação
+    word = random.choice(_CONFIRM_WORDS)
+    confirm_phrase = f"{project_id} {word}"
+
+    print(f"\nPara confirmar, digite exatamente: \033[1m{confirm_phrase}\033[0m")
+    print("(Ctrl+C para cancelar)\n")
+
+    try:
+        answer = input("> ").strip()
+    except (KeyboardInterrupt, EOFError):
+        print("\nCancelado.")
+        sys.exit(0)
+
+    if answer != confirm_phrase:
+        print(f"\n\033[0;31m✗ Confirmação incorreta. Nenhum arquivo foi removido.\033[0m")
+        sys.exit(1)
+
+    shutil.rmtree(state_dir)
+    print(f"\n\033[0;32m✓ Projeto '{project_id}' removido.\033[0m")
+
+
 def main():
+    # Detecção de subcomando: se o primeiro arg for 'rm', despacha para cmd_remove.
+    # Caso contrário, comportamento original (run) para manter compatibilidade.
+    if len(sys.argv) >= 2 and sys.argv[1] == "rm":
+        if len(sys.argv) < 3:
+            print("Uso: squire rm <project-id>")
+            sys.exit(1)
+        cmd_remove(sys.argv[2])
+        return
+
     parser = argparse.ArgumentParser(description="Orquestrador Claude Code + LLM Local")
     parser.add_argument("project_id", help="ID do projeto (nome do diretório)")
     parser.add_argument("--dry-run", action="store_true", help="Simula sem executar")
