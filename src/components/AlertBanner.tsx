@@ -8,7 +8,7 @@ interface Alert {
   project: string;
   task: string;
   message: string;
-  timestamp: string;
+  created_at: string;
   acknowledged: boolean;
 }
 
@@ -19,17 +19,19 @@ interface AlertBannerProps {
 const STORAGE_KEY = 'dismissed_alerts';
 
 const AlertBanner: React.FC<AlertBannerProps> = ({ alerts }) => {
+  const [hasMounted, setHasMounted] = useState(false);
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     try {
-      const stored = sessionStorage.getItem(STORAGE_KEY);
+      const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
         setDismissedIds(new Set(JSON.parse(stored) as string[]));
       }
     } catch {
-      // sessionStorage unavailable (SSR guard)
+      // localStorage unavailable
     }
+    setHasMounted(true);
   }, []);
 
   const dismiss = (id: string) => {
@@ -37,13 +39,16 @@ const AlertBanner: React.FC<AlertBannerProps> = ({ alerts }) => {
       const next = new Set(prev);
       next.add(id);
       try {
-        sessionStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(next)));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(next)));
       } catch {
         // ignore
       }
       return next;
     });
   };
+
+  // Antes de montar no cliente, retorna null para evitar flash de hidratação SSR
+  if (!hasMounted) return null;
 
   const activeAlerts = alerts.filter(
     (alert) => !alert.acknowledged && !dismissedIds.has(alert.id)
@@ -108,10 +113,11 @@ const AlertBanner: React.FC<AlertBannerProps> = ({ alerts }) => {
                       {alert.project} - {alert.task}
                     </div>
                     <div className="text-xs opacity-90 whitespace-nowrap mt-1 sm:mt-0">
-                      {new Date(alert.timestamp).toLocaleString()}
+                      {new Date(alert.created_at).toLocaleString()}
                     </div>
                   </div>
                   <p className="mt-1 text-sm opacity-95">{alert.message}</p>
+
                 </div>
                 <button
                   onClick={() => dismiss(alert.id)}

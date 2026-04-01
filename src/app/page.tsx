@@ -29,7 +29,7 @@ interface AlertJson {
   project: string;
   task: string;
   message: string;
-  timestamp: string;
+  created_at: string;
   acknowledged: boolean;
 }
 
