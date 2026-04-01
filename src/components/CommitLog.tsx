@@ -24,8 +24,18 @@ const getRelativeTime = (dateString: string): string => {
 
 const truncateSha = (sha: string): string => sha.substring(0, 7);
 
+const FILES_PREVIEW = 3;
+
 export const CommitLog: React.FC<CommitLogProps> = ({ commits, pageSize = 20, isLoading = false }) => {
   const [visibleCount, setVisibleCount] = useState(pageSize);
+  const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
+
+  const toggleFiles = (key: string) =>
+    setExpandedFiles((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
 
   const displayedCommits = commits.slice(0, visibleCount);
   const remaining = commits.length - visibleCount;
@@ -76,23 +86,41 @@ export const CommitLog: React.FC<CommitLogProps> = ({ commits, pageSize = 20, is
               </p>
             )}
 
-            {commit.files_changed && commit.files_changed.length > 0 && (
-              <div className="mt-3">
-                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                  Arquivos alterados
-                </h4>
-                <ul className="space-y-1">
-                  {commit.files_changed.map((file, fileIndex) => (
-                    <li key={fileIndex} className="flex items-center text-sm text-gray-700">
-                      <span className="w-1.5 h-1.5 bg-gray-300 rounded-full mr-2"></span>
-                      <span className="font-mono text-xs truncate max-w-[200px] sm:max-w-[300px]">
-                        {file}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
+            {commit.files_changed && commit.files_changed.length > 0 && (() => {
+              const fileKey = `${commit.sha}-${index}`;
+              const isExpanded = expandedFiles.has(fileKey);
+              const hasMore = commit.files_changed.length > FILES_PREVIEW;
+              const visibleFiles = isExpanded
+                ? commit.files_changed
+                : commit.files_changed.slice(0, FILES_PREVIEW);
+              return (
+                <div className="mt-3">
+                  <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                    Arquivos alterados
+                  </h4>
+                  <ul className="space-y-1">
+                    {visibleFiles.map((file, fileIndex) => (
+                      <li key={fileIndex} className="flex items-center text-sm text-gray-700">
+                        <span className="w-1.5 h-1.5 bg-gray-300 rounded-full mr-2"></span>
+                        <span className="font-mono text-xs truncate max-w-[200px] sm:max-w-[300px]">
+                          {file}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  {hasMore && (
+                    <button
+                      onClick={() => toggleFiles(fileKey)}
+                      className="mt-1 text-xs text-blue-500 hover:text-blue-700"
+                    >
+                      {isExpanded
+                        ? 'Ver menos'
+                        : `+ ${commit.files_changed.length - FILES_PREVIEW} arquivo(s)`}
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         ))}
       </div>

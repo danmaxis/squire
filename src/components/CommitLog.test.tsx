@@ -79,4 +79,43 @@ describe('CommitLog', () => {
     expect(screen.getByText('abcdef1')).toBeInTheDocument();
     expect(screen.getByText('Resumo visível')).toBeInTheDocument();
   });
+
+  it('não exibe botão de expandir quando arquivos ≤ 3', () => {
+    const commit = makeCommit({ files_changed: ['a.ts', 'b.ts', 'c.ts'] });
+    render(<CommitLog commits={[commit]} />);
+    expect(screen.queryByRole('button', { name: /arquivo/i })).not.toBeInTheDocument();
+  });
+
+  it('exibe apenas 3 arquivos e botão "+ N arquivo(s)" quando arquivos > 3', () => {
+    const files = ['a.ts', 'b.ts', 'c.ts', 'd.ts', 'e.ts'];
+    const commit = makeCommit({ files_changed: files });
+    render(<CommitLog commits={[commit]} />);
+
+    expect(screen.getByText('a.ts')).toBeInTheDocument();
+    expect(screen.getByText('c.ts')).toBeInTheDocument();
+    expect(screen.queryByText('d.ts')).not.toBeInTheDocument();
+    expect(screen.getByText('+ 2 arquivo(s)')).toBeInTheDocument();
+  });
+
+  it('expande lista de arquivos ao clicar no botão', () => {
+    const files = ['a.ts', 'b.ts', 'c.ts', 'd.ts', 'e.ts'];
+    render(<CommitLog commits={[makeCommit({ files_changed: files })]} />);
+
+    fireEvent.click(screen.getByText('+ 2 arquivo(s)'));
+
+    expect(screen.getByText('d.ts')).toBeInTheDocument();
+    expect(screen.getByText('e.ts')).toBeInTheDocument();
+    expect(screen.getByText('Ver menos')).toBeInTheDocument();
+  });
+
+  it('colapsa lista de arquivos ao clicar "Ver menos"', () => {
+    const files = ['a.ts', 'b.ts', 'c.ts', 'd.ts'];
+    render(<CommitLog commits={[makeCommit({ files_changed: files })]} />);
+
+    fireEvent.click(screen.getByText('+ 1 arquivo(s)'));
+    expect(screen.getByText('d.ts')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Ver menos'));
+    expect(screen.queryByText('d.ts')).not.toBeInTheDocument();
+  });
 });
