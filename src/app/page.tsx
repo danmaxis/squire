@@ -106,7 +106,7 @@ export default async function HomePage() {
       {/* Barra de alertas no topo */}
       {alerts.length > 0 && <AlertBanner alerts={alerts} />}
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 ${alerts.length > 0 ? 'pt-24' : ''}`}>
         {/* Cabeçalho */}
         <div className="flex items-center justify-between mb-8">
           <div>

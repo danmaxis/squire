@@ -69,9 +69,12 @@ export function useAutoRefresh(options: UseAutoRefreshOptions = {}): UseAutoRefr
   useEffect(() => {
     if (!enabled) return;
 
+    // Dispara o primeiro refresh logo após a hidratação, sem esperar o intervalo completo
+    const initialTimer = setTimeout(performRefresh, 500);
     timerRef.current = setInterval(performRefresh, interval);
 
     return () => {
+      clearTimeout(initialTimer);
       if (timerRef.current !== null) {
         clearInterval(timerRef.current);
         timerRef.current = null;
