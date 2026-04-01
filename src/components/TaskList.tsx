@@ -60,7 +60,7 @@ export default function TaskList({ tasks }: TaskListProps) {
 
   return (
     <div className="space-y-4">
-      {tasks.map((task) => (
+      {tasks.map((task, index) => (
         <div
           key={task.id}
           className="border border-gray-200 rounded-lg overflow-hidden transition-all duration-200 hover:shadow-md"
@@ -75,7 +75,10 @@ export default function TaskList({ tasks }: TaskListProps) {
                 task.status === 'blocked' ? 'bg-red-500' :
                 'bg-blue-500'
               }`} />
-              <h3 className="font-semibold text-gray-800">{task.title}</h3>
+              <h3 className="font-semibold text-gray-800">
+                <span className="text-gray-400 font-mono text-xs mr-1">#{index + 1}</span>
+                {task.title}
+              </h3>
             </div>
 
             <div className="flex items-center gap-2 text-sm flex-wrap justify-end">

@@ -50,6 +50,20 @@ const createTaskWithId = (id: string, title: string, overrides: Partial<Task> = 
 });
 
 describe('TaskList', () => {
+  it('exibe numeração sequencial (#1, #2, ...) antes do título de cada tarefa', () => {
+    const tasks: Task[] = [
+      createTaskWithId('task-1', 'Primeira Tarefa'),
+      createTaskWithId('task-2', 'Segunda Tarefa'),
+      createTaskWithId('task-3', 'Terceira Tarefa'),
+    ];
+
+    render(<TaskList tasks={tasks} />);
+
+    expect(screen.getByText('#1')).toBeInTheDocument();
+    expect(screen.getByText('#2')).toBeInTheDocument();
+    expect(screen.getByText('#3')).toBeInTheDocument();
+  });
+
   it('renders effort badges with correct labels and colors', () => {
     const tasks: Task[] = [
       createMockTask({ effort: 'low', id: 'task-1' }),
