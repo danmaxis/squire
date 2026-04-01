@@ -1,5 +1,9 @@
 import { promises as fs } from 'fs';
 import { join } from 'path';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 import type {
   Project,
   Task,
@@ -75,10 +79,49 @@ export async function getHistory(projectId: string): Promise<HistoryEvent[]> {
   return data?.events ?? [];
 }
 
+async function getCommitsFromGit(repoPath: string): Promise<CommitSummary[]> {
+  try {
+    // Formato: linha HEADER seguida de arquivos alterados, separados por COMMITSEP
+    const { stdout } = await execAsync(
+      'git log -n 100 --format=COMMITSEP%n%H%n%s%n%aI --name-only',
+      { cwd: repoPath, timeout: 5000 }
+    );
+
+    const commits: CommitSummary[] = [];
+    // Divide nos blocos de cada commit
+    const blocks = stdout.split('\nCOMMITSEP\n').filter((b) => b.trim());
+
+    for (const block of blocks) {
+      const lines = block.replace(/^COMMITSEP\n/, '').split('\n');
+      const [sha, message, timestamp, ...rest] = lines;
+      if (!sha || !message || !timestamp) continue;
+      const files_changed = rest.filter((l) => l.trim() !== '');
+      commits.push({
+        sha,
+        message,
+        timestamp,
+        diff_summary: `${files_changed.length} arquivo(s) alterado(s)`,
+        files_changed,
+      });
+    }
+
+    return commits;
+  } catch {
+    return [];
+  }
+}
+
 export async function getCommits(projectId: string): Promise<CommitSummary[]> {
+  // Tenta commits.json primeiro (squire pode gerar no futuro)
   const commitsPath = join(DATA_PATH, 'projects', projectId, 'commits.json');
   const data = await readJsonFile<CommitLog>(commitsPath);
-  return data?.commits ?? [];
+  if (data?.commits && data.commits.length > 0) return data.commits;
+
+  // Fallback: lê git log direto do repo_path do projeto
+  const project = await getProject(projectId);
+  if (project?.repo_path) return getCommitsFromGit(project.repo_path);
+
+  return [];
 }
 
 export async function getAlerts(): Promise<Alert[]> {
