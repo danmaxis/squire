@@ -1,7 +1,11 @@
+'use client';
+
+import { useState } from 'react';
 import { HistoryEvent } from '@/lib/types';
 
 interface TimelineProps {
   events: HistoryEvent[];
+  pageSize?: number;
 }
 
 const getActorColor = (actor: string) => {
@@ -103,42 +107,58 @@ const getIconColor = (type: string) => {
   }
 };
 
-export function Timeline({ events }: TimelineProps) {
-  const sortedEvents = [...events].sort((a, b) => 
+export function Timeline({ events, pageSize = 20 }: TimelineProps) {
+  const [visibleCount, setVisibleCount] = useState(pageSize);
+
+  const sortedEvents = [...events].sort((a, b) =>
     new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
   );
 
+  const visibleEvents = sortedEvents.slice(0, visibleCount);
+  const remaining = sortedEvents.length - visibleCount;
+
   return (
-    <div className="relative pl-4 border-l-2 border-gray-200 space-y-6">
-      {sortedEvents.map((event, index) => (
-        <div key={`${event.timestamp}-${index}`} className="relative pl-6">
-          <div className={`absolute -left-[21px] top-1 w-3 h-3 rounded-full border-2 border-white ${getActorColor(event.actor)}`} />
-          
-          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-1">
-            <div className="flex-1">
-              <div className="flex items-center gap-2 mb-1">
-                <span className={`p-1.5 rounded-md bg-opacity-10 ${getIconColor(event.type)} bg-opacity-20`}>
-                  {getIcon(event.type)}
-                </span>
-                <span className="text-sm font-semibold text-gray-800">{getActorLabel(event.actor)}</span>
-                {event.attempt !== null && (
-                  <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">#{event.attempt}</span>
-                )}
-                <span className="text-xs text-gray-400">• {new Date(event.timestamp).toLocaleDateString('pt-BR')}</span>
+    <div>
+      <div className="relative pl-4 border-l-2 border-gray-200 space-y-6">
+        {visibleEvents.map((event, index) => (
+          <div key={`${event.timestamp}-${index}`} className="relative pl-6">
+            <div className={`absolute -left-[21px] top-1 w-3 h-3 rounded-full border-2 border-white ${getActorColor(event.actor)}`} />
+
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-1">
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className={`p-1.5 rounded-md bg-opacity-10 ${getIconColor(event.type)} bg-opacity-20`}>
+                    {getIcon(event.type)}
+                  </span>
+                  <span className="text-sm font-semibold text-gray-800">{getActorLabel(event.actor)}</span>
+                  {event.attempt !== null && (
+                    <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">#{event.attempt}</span>
+                  )}
+                  <span className="text-xs text-gray-400">• {new Date(event.timestamp).toLocaleDateString('pt-BR')}</span>
+                </div>
+                <p className="text-sm text-gray-600 leading-relaxed">
+                  {event.summary}
+                </p>
               </div>
-              <p className="text-sm text-gray-600 leading-relaxed">
-                {event.summary}
-              </p>
-            </div>
-            <div className="text-xs text-gray-400 whitespace-nowrap mt-1 sm:mt-0">
-              {event.type}
+              <div className="text-xs text-gray-400 whitespace-nowrap mt-1 sm:mt-0">
+                {event.type}
+              </div>
             </div>
           </div>
-        </div>
-      ))}
-      
-      {sortedEvents.length === 0 && (
-        <p className="text-sm text-gray-400 italic">Nenhum evento registrado.</p>
+        ))}
+
+        {sortedEvents.length === 0 && (
+          <p className="text-sm text-gray-400 italic">Nenhum evento registrado.</p>
+        )}
+      </div>
+
+      {remaining > 0 && (
+        <button
+          onClick={() => setVisibleCount((prev) => prev + pageSize)}
+          className="mt-4 w-full py-2 text-sm text-blue-600 hover:text-blue-800 font-medium border border-blue-200 hover:border-blue-400 rounded-lg transition-colors"
+        >
+          Ver mais {Math.min(pageSize, remaining)} eventos
+        </button>
       )}
     </div>
   );

@@ -1,22 +1,14 @@
 'use client';
 
-import React from 'react';
-
-// Tipos baseados na estrutura esperada de commits.json
-export interface Commit {
-  sha: string;
-  message: string;
-  timestamp: string; // ISO 8601 ou timestamp Unix
-  diff_summary: string;
-  files_changed: string[];
-}
+import React, { useState } from 'react';
+import { CommitSummary } from '@/lib/types';
 
 interface CommitLogProps {
-  commits: Commit[];
+  commits: CommitSummary[];
+  pageSize?: number;
   isLoading?: boolean;
 }
 
-// Função auxiliar para formatar data relativa (ex: "há 2 horas")
 const getRelativeTime = (dateString: string): string => {
   const date = new Date(dateString);
   const now = new Date();
@@ -26,18 +18,17 @@ const getRelativeTime = (dateString: string): string => {
   if (diffInSeconds < 3600) return `há ${Math.floor(diffInSeconds / 60)} minuto(s)`;
   if (diffInSeconds < 86400) return `há ${Math.floor(diffInSeconds / 3600)} hora(s)`;
   if (diffInSeconds < 604800) return `há ${Math.floor(diffInSeconds / 86400)} dia(s)`;
-  
+
   return date.toLocaleDateString('pt-BR');
 };
 
-// Função auxiliar para truncar SHA
 const truncateSha = (sha: string): string => sha.substring(0, 7);
 
-export const CommitLog: React.FC<CommitLogProps> = ({ commits, isLoading = false }) => {
-  const MAX_VISIBLE = 20;
-  const [showAll, setShowAll] = React.useState(false);
+export const CommitLog: React.FC<CommitLogProps> = ({ commits, pageSize = 20, isLoading = false }) => {
+  const [visibleCount, setVisibleCount] = useState(pageSize);
 
-  const displayedCommits = showAll ? commits : commits.slice(0, MAX_VISIBLE);
+  const displayedCommits = commits.slice(0, visibleCount);
+  const remaining = commits.length - visibleCount;
 
   if (isLoading) {
     return (
@@ -58,18 +49,6 @@ export const CommitLog: React.FC<CommitLogProps> = ({ commits, isLoading = false
 
   return (
     <div className="w-full">
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="text-xl font-bold text-gray-800">Histórico de Commits</h2>
-        {commits.length > MAX_VISIBLE && (
-          <button
-            onClick={() => setShowAll(!showAll)}
-            className="text-sm text-blue-600 hover:text-blue-800 font-medium transition-colors"
-          >
-            {showAll ? 'Ver menos' : 'Ver mais'}
-          </button>
-        )}
-      </div>
-
       <div className="space-y-4">
         {displayedCommits.map((commit, index) => (
           <div
@@ -117,6 +96,15 @@ export const CommitLog: React.FC<CommitLogProps> = ({ commits, isLoading = false
           </div>
         ))}
       </div>
+
+      {remaining > 0 && (
+        <button
+          onClick={() => setVisibleCount((prev) => prev + pageSize)}
+          className="mt-4 w-full py-2 text-sm text-blue-600 hover:text-blue-800 font-medium border border-blue-200 hover:border-blue-400 rounded-lg transition-colors"
+        >
+          Ver mais {Math.min(pageSize, remaining)} commits
+        </button>
+      )}
     </div>
   );
 };
