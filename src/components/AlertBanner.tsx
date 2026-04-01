@@ -1,16 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-
-interface Alert {
-  id: string;
-  severity: 'critical' | 'warning';
-  project: string;
-  task: string;
-  message: string;
-  created_at: string;
-  acknowledged: boolean;
-}
+import { Alert } from '@/lib/types';
 
 interface AlertBannerProps {
   alerts: Alert[];
@@ -18,15 +9,19 @@ interface AlertBannerProps {
 
 const STORAGE_KEY = 'dismissed_alerts';
 
+/** Chave estável por alerta — Alert não tem campo `id` no schema do squire */
+const alertKey = (alert: Alert) =>
+  `${alert.project_id}::${alert.task_id ?? ''}::${alert.created_at}`;
+
 const AlertBanner: React.FC<AlertBannerProps> = ({ alerts }) => {
   const [hasMounted, setHasMounted] = useState(false);
-  const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
+  const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
-        setDismissedIds(new Set(JSON.parse(stored) as string[]));
+        setDismissedKeys(new Set(JSON.parse(stored) as string[]));
       }
     } catch {
       // localStorage unavailable
@@ -34,10 +29,10 @@ const AlertBanner: React.FC<AlertBannerProps> = ({ alerts }) => {
     setHasMounted(true);
   }, []);
 
-  const dismiss = (id: string) => {
-    setDismissedIds((prev) => {
+  const dismiss = (key: string) => {
+    setDismissedKeys((prev) => {
       const next = new Set(prev);
-      next.add(id);
+      next.add(key);
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(next)));
       } catch {
@@ -51,7 +46,7 @@ const AlertBanner: React.FC<AlertBannerProps> = ({ alerts }) => {
   if (!hasMounted) return null;
 
   const activeAlerts = alerts.filter(
-    (alert) => !alert.acknowledged && !dismissedIds.has(alert.id)
+    (alert) => !alert.acknowledged && !dismissedKeys.has(alertKey(alert))
   );
 
   if (activeAlerts.length === 0) {
@@ -73,54 +68,53 @@ const AlertBanner: React.FC<AlertBannerProps> = ({ alerts }) => {
     };
   };
 
-  const getIcon = (severity: string) => {
-    return (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        className="h-5 w-5 mr-2 flex-shrink-0"
-        viewBox="0 0 20 20"
-        fill="currentColor"
-        aria-hidden="true"
-      >
-        <path
-          fillRule="evenodd"
-          d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
-          clipRule="evenodd"
-        />
-      </svg>
-    );
-  };
+  const getIcon = () => (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      className="h-5 w-5 mr-2 flex-shrink-0"
+      viewBox="0 0 20 20"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path
+        fillRule="evenodd"
+        d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
 
   return (
     <div className="fixed top-0 left-0 right-0 z-50 overflow-y-auto shadow-md">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
         <div className="space-y-3">
           {activeAlerts.map((alert) => {
+            const key = alertKey(alert);
             const style = getBannerStyle(alert.severity);
             return (
               <div
-                key={alert.id}
+                key={key}
                 className="flex items-start p-4 rounded-lg border-l-4 shadow-sm"
                 style={{ ...style, borderColor: style.borderColor }}
                 role="alert"
               >
                 <div className="flex-shrink-0 mt-0.5">
-                  {getIcon(alert.severity)}
+                  {getIcon()}
                 </div>
                 <div className="ml-3 flex-1 min-w-0">
                   <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-1">
                     <div className="font-semibold text-sm sm:text-base">
-                      {alert.project} - {alert.task}
+                      {alert.project_id}
+                      {alert.task_id ? ` — ${alert.task_id}` : ''}
                     </div>
                     <div className="text-xs opacity-90 whitespace-nowrap mt-1 sm:mt-0">
                       {new Date(alert.created_at).toLocaleString()}
                     </div>
                   </div>
                   <p className="mt-1 text-sm opacity-95">{alert.message}</p>
-
                 </div>
                 <button
-                  onClick={() => dismiss(alert.id)}
+                  onClick={() => dismiss(key)}
                   aria-label="Fechar alerta"
                   className="ml-3 flex-shrink-0 p-1 rounded opacity-70 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-white"
                   style={{ color: style.color }}

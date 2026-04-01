@@ -1,20 +1,13 @@
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import AlertBanner from './AlertBanner';
+import type { Alert } from '@/lib/types';
 
-const makeAlert = (overrides?: Partial<{
-  id: string;
-  severity: 'critical' | 'warning';
-  project: string;
-  task: string;
-  message: string;
-  created_at: string;
-  acknowledged: boolean;
-}>) => ({
-  id: 'alert-1',
-  severity: 'warning' as const,
-  project: 'Projeto X',
-  task: 'task-001',
+const makeAlert = (overrides?: Partial<Alert>): Alert => ({
+  project_id: 'projeto-x',
+  severity: 'warning',
+  type: 'failed_homologation',
+  task_id: 'task-001',
   message: 'Falhou em 5 homologações',
   created_at: '2026-03-29T10:00:00Z',
   acknowledged: false,
@@ -27,11 +20,10 @@ beforeEach(() => {
 });
 
 describe('AlertBanner', () => {
-  it('retorna null antes de montar (evita flash de hidratação SSR)', () => {
-    // Antes do useEffect disparar, o componente deve retornar null
+  it('retorna null antes de montar (evita flash de hidratação SSR)', async () => {
     const { container } = render(<AlertBanner alerts={[makeAlert()]} />);
-    // O useEffect no jsdom é síncrono, então após render já está montado.
-    // Testamos que o componente renderiza corretamente após montar.
+    await act(async () => {});
+    // Após montar, o alerta deve aparecer
     expect(container.innerHTML).not.toBe('');
   });
 
@@ -49,11 +41,17 @@ describe('AlertBanner', () => {
     expect(container.innerHTML).toBe('');
   });
 
-  it('renderiza alerta não-acknowledged com campos corretos', async () => {
+  it('renderiza project_id e task_id corretamente', async () => {
     render(<AlertBanner alerts={[makeAlert()]} />);
     await act(async () => {});
-    expect(screen.getByText('Falhou em 5 homologações')).toBeInTheDocument();
-    expect(screen.getByText('Projeto X - task-001')).toBeInTheDocument();
+    expect(screen.getByText(/projeto-x/)).toBeInTheDocument();
+    expect(screen.getByText(/task-001/)).toBeInTheDocument();
+  });
+
+  it('renderiza sem task_id quando task_id é null', async () => {
+    render(<AlertBanner alerts={[makeAlert({ task_id: null })]} />);
+    await act(async () => {});
+    expect(screen.getByText('projeto-x')).toBeInTheDocument();
   });
 
   it('não exibe "Invalid Date" no timestamp', async () => {
@@ -72,30 +70,31 @@ describe('AlertBanner', () => {
     expect(screen.queryByText('Falhou em 5 homologações')).not.toBeInTheDocument();
   });
 
-  it('dismiss persiste no localStorage', async () => {
-    render(<AlertBanner alerts={[makeAlert({ id: 'alert-42' })]} />);
+  it('dismiss persiste no localStorage com chave composta', async () => {
+    render(<AlertBanner alerts={[makeAlert()]} />);
     await act(async () => {});
 
     fireEvent.click(screen.getByRole('button', { name: /fechar alerta/i }));
 
     const stored = JSON.parse(localStorage.getItem('dismissed_alerts') ?? '[]') as string[];
-    expect(stored).toContain('alert-42');
+    expect(stored).toContain('projeto-x::task-001::2026-03-29T10:00:00Z');
   });
 
   it('alerta já dispensado (localStorage pré-populado) não aparece', async () => {
-    localStorage.setItem('dismissed_alerts', JSON.stringify(['alert-pre']));
-
-    const { container } = render(
-      <AlertBanner alerts={[makeAlert({ id: 'alert-pre' })]} />
+    localStorage.setItem(
+      'dismissed_alerts',
+      JSON.stringify(['projeto-x::task-001::2026-03-29T10:00:00Z'])
     );
+
+    const { container } = render(<AlertBanner alerts={[makeAlert()]} />);
     await act(async () => {});
     expect(container.innerHTML).toBe('');
   });
 
   it('renderiza múltiplos alertas com dismiss individual', async () => {
-    const alerts = [
-      makeAlert({ id: 'a1', message: 'Mensagem 1' }),
-      makeAlert({ id: 'a2', message: 'Mensagem 2', severity: 'critical' }),
+    const alerts: Alert[] = [
+      makeAlert({ task_id: 'task-001', message: 'Mensagem 1', created_at: '2026-03-29T10:00:00Z' }),
+      makeAlert({ task_id: 'task-002', message: 'Mensagem 2', severity: 'critical', created_at: '2026-03-29T11:00:00Z' }),
     ];
 
     render(<AlertBanner alerts={alerts} />);

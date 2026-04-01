@@ -7,6 +7,7 @@ import { ProjectCard } from '@/components/ProjectCard';
 import AlertBanner from '@/components/AlertBanner';
 import GlobalStats from '@/components/GlobalStats';
 import { RefreshController } from '@/components/RefreshController';
+import type { Alert } from '@/lib/types';
 
 const DATA_PATH = process.env.ORCHESTRATOR_DATA_PATH ?? join(process.cwd(), 'fixtures', 'data');
 
@@ -23,15 +24,6 @@ interface TaskJson {
   status: string;
 }
 
-interface AlertJson {
-  id: string;
-  severity: 'critical' | 'warning';
-  project: string;
-  task: string;
-  message: string;
-  created_at: string;
-  acknowledged: boolean;
-}
 
 async function readJson<T>(path: string): Promise<T | null> {
   try {
@@ -76,8 +68,8 @@ async function getProjectsWithProgress() {
   }[];
 }
 
-async function getAlerts(): Promise<AlertJson[]> {
-  const wrapper = await readJson<{ alerts: AlertJson[] }>(join(DATA_PATH, 'alerts.json'));
+async function getAlerts(): Promise<Alert[]> {
+  const wrapper = await readJson<{ alerts: Alert[] }>(join(DATA_PATH, 'alerts.json'));
   return wrapper?.alerts ?? [];
 }
 
