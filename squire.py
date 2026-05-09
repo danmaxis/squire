@@ -52,7 +52,7 @@ from models import (
 
 def log(msg: str, level: str = "info") -> None:
     """Log simples com timestamp."""
-    ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+    ts = datetime.now().astimezone().strftime("%H:%M:%S")
     prefix = {"info": "→", "ok": "✓", "warn": "⚠", "error": "✗"}
     print(f"[{ts}] {prefix.get(level, '→')} {msg}")
 

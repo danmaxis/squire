@@ -60,7 +60,7 @@ class InnerLoop:
         if not self.verbose:
             return
         from datetime import datetime, timezone
-        ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+        ts = datetime.now().astimezone().strftime("%H:%M:%S")
         lines = [l for l in text.splitlines() if l.strip()][:max_lines]
         for i, line in enumerate(lines):
             prefix = f"┊{arrow}" if i == 0 else "┊ "
@@ -248,6 +248,15 @@ class InnerLoop:
         except Exception:
             pass
 
+        # Restrições permanentes — aparecem em TODA instrução, não só após violação
+        parts.extend([
+            "",
+            "## Restrições obrigatórias",
+            "- PROIBIDO modificar qualquer arquivo test_*.py ou *_test.py",
+            "- Implemente APENAS código de produção",
+            "- Os testes são imutáveis — se falharem, corrija o código, nunca o teste",
+        ])
+
         # A seção de formato só faz sentido para LiteLLM (que parseia output em texto)
         # Aider/OpenCode não precisam dela, mas não prejudica incluir
         from backends import LiteLLMBackend
@@ -345,14 +354,26 @@ class InnerLoop:
 
         # Detectar test runner
         if (self.project_path / "package.json").exists() and self._has_npm_test_script():
-            cmd = ["npm", "test", "--", "--watchAll=false", "--passWithNoTests"]
+            import json as _json
+            try:
+                _pkg = _json.loads((self.project_path / "package.json").read_text())
+                _deps = {**_pkg.get("dependencies", {}), **_pkg.get("devDependencies", {})}
+                _is_vitest = "vitest" in _deps
+            except Exception:
+                _is_vitest = False
+            # --watchAll=false is jest/CRA-specific; vitest does not accept it
+            _extra = ["--passWithNoTests"] if _is_vitest else ["--watchAll=false", "--passWithNoTests"]
+            cmd = ["npm", "test", "--"] + _extra
         elif (self.project_path / "package.json").exists() and not self._has_npm_test_script():
             result["success"] = True
             result["skipped"] = True
             result["output"] = "No test script in package.json, skipping."
             return result
         elif (self.project_path / "pyproject.toml").exists():
-            cmd = ["python", "-m", "pytest", "--tb=short", "-q"]
+            import shutil
+            venv_python = self.project_path / ".venv" / "bin" / "python"
+            py_bin = str(venv_python) if venv_python.exists() else (shutil.which("python3") or "python")
+            cmd = [py_bin, "-m", "pytest", "--tb=short", "-q"]
         elif (self.project_path / "go.mod").exists():
             cmd = ["go", "test", "./..."]
         else:
