@@ -7,8 +7,9 @@ após a execução — isso não é responsabilidade do backend.
 
 Backends disponíveis:
 - litellm  : LLM local via HTTP (LiteLLM / llama.cpp)
-- aider    : CLI aider com --no-auto-commits
-- opencode : CLI opencode
+- aider    : CLI aider com --no-auto-commits (DESCONTINUADO)
+- opencode : CLI opencode (com roteamento de agentes especialistas)
+- crush    : CLI crush (sem roteamento de agentes)
 """
 
 from __future__ import annotations
@@ -441,6 +442,81 @@ class OpenCodeBackend(CodingBackend):
             return []
 
 
+# ── Crush Backend ─────────────────────────────────────────────────
+
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*[mGKHF]")
+
+
+class CrushBackend(CodingBackend):
+    """
+    Backend que usa o CLI crush para implementação.
+
+    crush é similar ao opencode mas sem roteamento de agentes especialistas.
+    Usa `crush run --cwd <path> --quiet --yolo <prompt>` para execução
+    não-interativa. A instrução é passada via stdin para evitar limitações
+    de ARG_MAX com prompts longos.
+
+    Arquivos modificados detectados via git diff (mesmo mecanismo do OpenCodeBackend).
+    """
+
+    def __init__(self, crush_bin: str = config.CRUSH_BIN):
+        self.crush_bin = crush_bin
+
+    def execute_instruction(
+        self,
+        instruction: str,
+        project_path: Path,
+        timeout: int,
+        task_hint: dict | None = None,
+    ) -> BackendResult:
+        cmd = [self.crush_bin, "run", "--cwd", str(project_path), "--quiet", "--yolo"]
+        with _LLMLock():
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    input=instruction,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                )
+                raw_output = _ANSI_ESCAPE.sub("", proc.stdout + proc.stderr)
+                if proc.returncode != 0 and not proc.stdout.strip():
+                    return BackendResult(
+                        raw_output=raw_output,
+                        error=f"crush exited {proc.returncode}: {proc.stderr[:300]}",
+                    )
+            except FileNotFoundError:
+                return BackendResult(error=f"crush not found: {self.crush_bin}")
+            except subprocess.TimeoutExpired:
+                return BackendResult(error=f"crush timed out ({timeout}s)")
+
+        files_touched = self._git_diff_files(project_path)
+        return BackendResult(files_touched=files_touched, raw_output=raw_output, agent_used="crush")
+
+    def _git_diff_files(self, project_path: Path) -> list[str]:
+        """Mesmo mecanismo do OpenCodeBackend."""
+        try:
+            proc = subprocess.run(
+                ["git", "diff", "--name-only", "HEAD"],
+                cwd=str(project_path),
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            files = [f.strip() for f in proc.stdout.splitlines() if f.strip()]
+            proc2 = subprocess.run(
+                ["git", "ls-files", "--others", "--exclude-standard"],
+                cwd=str(project_path),
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            new_files = [f.strip() for f in proc2.stdout.splitlines() if f.strip()]
+            return [f for f in dict.fromkeys(files + new_files) if _is_source_file(f)]
+        except Exception:
+            return []
+
+
 # ── Utilitários de parse ───────────────────────────────────────────
 
 def parse_and_apply_files(text: str, project_path: Path) -> list[str]:
@@ -460,7 +536,7 @@ def create_backend(name: str, **kwargs) -> CodingBackend:
     Instancia o backend pelo nome.
 
     Args:
-        name: "litellm" | "aider" | "opencode"
+        name: "litellm" | "aider" | "opencode" | "crush"
         **kwargs: argumentos opcionais repassados ao construtor do backend
 
     Returns:
@@ -481,6 +557,8 @@ def create_backend(name: str, **kwargs) -> CodingBackend:
         )
     if name == "opencode":
         return OpenCodeBackend(**kwargs)
+    if name == "crush":
+        return CrushBackend(**kwargs)
     raise ValueError(
-        f"Backend desconhecido: '{name}'. Use 'litellm' ou 'opencode'."
+        f"Backend desconhecido: '{name}'. Use 'litellm', 'opencode' ou 'crush'."
     )

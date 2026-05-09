@@ -48,6 +48,7 @@ INNER_LOOP_TIMEOUT_SECONDS = int(os.getenv("SQUIRE_INNER_TIMEOUT", "1200"))
 CODING_BACKEND = os.getenv("SQUIRE_CODING_BACKEND", "opencode")
 AIDER_BIN = os.getenv("SQUIRE_AIDER_BIN", "aider")  # DEPRECATED — não tem mais efeito
 OPENCODE_BIN = os.getenv("SQUIRE_OPENCODE_BIN", "opencode")
+CRUSH_BIN = os.getenv("SQUIRE_CRUSH_BIN", "crush")
 
 
 # ── Claude Code ────────────────────────────────────────────────────

@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from backends import BackendResult, OpenCodeBackend, _is_source_file, create_backend
+from backends import BackendResult, CrushBackend, OpenCodeBackend, _is_source_file, create_backend
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -473,3 +473,143 @@ class TestAiderDeprecation:
         from backends import LiteLLMBackend
         backend_instance = create_backend("litellm")
         assert isinstance(backend_instance, LiteLLMBackend)
+
+
+# ── TestCrushBackend ──────────────────────────────────────────────────
+
+class TestCrushBackend:
+    """CrushBackend: execução via crush run, sem agentes, com strip de ANSI."""
+
+    def _make_proc(self, returncode=0, stdout="done", stderr=""):
+        p = MagicMock()
+        p.returncode = returncode
+        p.stdout = stdout
+        p.stderr = stderr
+        return p
+
+    def _mock_lock(self):
+        cm = MagicMock()
+        cm.__enter__ = MagicMock(return_value=cm)
+        cm.__exit__ = MagicMock(return_value=False)
+        return cm
+
+    def test_agent_used_sempre_crush(self, tmp_path):
+        """CrushBackend não roteia — agent_used deve ser sempre 'crush'."""
+        b = CrushBackend(crush_bin="crush")
+        with patch("backends.subprocess.run", return_value=self._make_proc()), \
+             patch("backends._LLMLock", return_value=self._mock_lock()), \
+             patch.object(b, "_git_diff_files", return_value=["src/foo.ts"]):
+            result = b.execute_instruction(
+                instruction="faça algo",
+                project_path=tmp_path,
+                timeout=30,
+            )
+        assert result.agent_used == "crush"
+
+    def test_agent_used_crush_com_task_hint(self, tmp_path):
+        """task_hint não muda o agente — sempre 'crush'."""
+        b = CrushBackend(crush_bin="crush")
+        with patch("backends.subprocess.run", return_value=self._make_proc()), \
+             patch("backends._LLMLock", return_value=self._mock_lock()), \
+             patch.object(b, "_git_diff_files", return_value=[]):
+            result = b.execute_instruction(
+                instruction="corrija",
+                project_path=tmp_path,
+                timeout=30,
+                task_hint={"title": "Run migration", "last_error": "TypeError: x is null"},
+            )
+        assert result.agent_used == "crush"
+
+    def test_files_touched_via_git_diff(self, tmp_path):
+        """files_touched vem de _git_diff_files."""
+        b = CrushBackend(crush_bin="crush")
+        expected = ["src/index.ts", "package.json"]
+        with patch("backends.subprocess.run", return_value=self._make_proc()), \
+             patch("backends._LLMLock", return_value=self._mock_lock()), \
+             patch.object(b, "_git_diff_files", return_value=expected):
+            result = b.execute_instruction(
+                instruction="qualquer",
+                project_path=tmp_path,
+                timeout=30,
+            )
+        assert result.files_touched == expected
+
+    def test_ansi_removido_do_output(self, tmp_path):
+        """Output com escape codes ANSI deve ser stripado."""
+        ansi_output = "\x1b[32mDone!\x1b[0m  Modified 2 files."
+        b = CrushBackend(crush_bin="crush")
+        with patch("backends.subprocess.run", return_value=self._make_proc(stdout=ansi_output)), \
+             patch("backends._LLMLock", return_value=self._mock_lock()), \
+             patch.object(b, "_git_diff_files", return_value=[]):
+            result = b.execute_instruction(
+                instruction="qualquer",
+                project_path=tmp_path,
+                timeout=30,
+            )
+        assert "\x1b" not in result.raw_output
+        assert "Done!" in result.raw_output
+
+    def test_instrucao_passada_via_stdin(self, tmp_path):
+        """A instrução deve ser enviada como stdin (input=), não como argumento CLI."""
+        b = CrushBackend(crush_bin="crush")
+        with patch("backends.subprocess.run", return_value=self._make_proc()) as mock_run, \
+             patch("backends._LLMLock", return_value=self._mock_lock()), \
+             patch.object(b, "_git_diff_files", return_value=[]):
+            b.execute_instruction(
+                instruction="instrução longa",
+                project_path=tmp_path,
+                timeout=30,
+            )
+        call_kwargs = mock_run.call_args
+        assert call_kwargs.kwargs.get("input") == "instrução longa"
+        # instrução não deve aparecer nos args do comando
+        cmd_args = call_kwargs.args[0]
+        assert "instrução longa" not in cmd_args
+
+    def test_flags_obrigatorias_no_cmd(self, tmp_path):
+        """--cwd, --quiet e --yolo devem sempre estar presentes no comando."""
+        b = CrushBackend(crush_bin="crush")
+        with patch("backends.subprocess.run", return_value=self._make_proc()) as mock_run, \
+             patch("backends._LLMLock", return_value=self._mock_lock()), \
+             patch.object(b, "_git_diff_files", return_value=[]):
+            b.execute_instruction(
+                instruction="qualquer",
+                project_path=tmp_path,
+                timeout=30,
+            )
+        cmd = mock_run.call_args.args[0]
+        assert "--quiet" in cmd
+        assert "--yolo" in cmd
+        assert "--cwd" in cmd
+        assert str(tmp_path) in cmd
+
+    def test_erro_crush_nao_encontrado(self, tmp_path):
+        """FileNotFoundError → BackendResult.error com mensagem clara."""
+        b = CrushBackend(crush_bin="/nao/existe/crush")
+        with patch("backends.subprocess.run", side_effect=FileNotFoundError()), \
+             patch("backends._LLMLock", return_value=self._mock_lock()):
+            result = b.execute_instruction(
+                instruction="qualquer",
+                project_path=tmp_path,
+                timeout=30,
+            )
+        assert result.error is not None
+        assert "crush not found" in result.error
+
+    def test_timeout_retorna_erro(self, tmp_path):
+        """TimeoutExpired → BackendResult.error mencionando timeout."""
+        b = CrushBackend(crush_bin="crush")
+        with patch("backends.subprocess.run", side_effect=subprocess.TimeoutExpired("crush", 30)), \
+             patch("backends._LLMLock", return_value=self._mock_lock()):
+            result = b.execute_instruction(
+                instruction="qualquer",
+                project_path=tmp_path,
+                timeout=30,
+            )
+        assert result.error is not None
+        assert "timed out" in result.error
+
+    def test_create_backend_crush(self):
+        """create_backend('crush') deve retornar instância de CrushBackend."""
+        b = create_backend("crush")
+        assert isinstance(b, CrushBackend)
