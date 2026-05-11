@@ -5,6 +5,7 @@ import TaskList from '@/components/TaskList';
 import { Timeline } from '@/components/Timeline';
 import { CommitLog } from '@/components/CommitLog';
 import { CheckpointPanel } from '@/components/CheckpointPanel';
+import { TDDProgressBar } from '@/components/TDDProgressBar';
 import type { ProjectStatus } from '@/lib/types';
 
 const statusColors: Record<ProjectStatus, string> = {
@@ -37,6 +38,17 @@ export default async function ProjectPage({ params }: { params: { id: string } }
   if (!project) notFound();
 
   const status = project.status as ProjectStatus;
+  const currentTask =
+    checkpoint && checkpoint.cursor.current_task_id
+      ? tasks.find((t) => t.id === checkpoint.cursor.current_task_id) ?? null
+      : null;
+  const showTDD =
+    currentTask !== null &&
+    checkpoint !== null &&
+    currentTask.tdd === true &&
+    (['red_phase', 'llm_execution', 'testing', 'homologation'] as const).includes(
+      checkpoint.cursor.step as 'red_phase' | 'llm_execution' | 'testing' | 'homologation'
+    );
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
@@ -55,6 +67,20 @@ export default async function ProjectPage({ params }: { params: { id: string } }
             {statusLabels[status] ?? status}
           </span>
         </div>
+
+        {/* Live TDD progress (only when a task is actively running) */}
+        {showTDD && currentTask && checkpoint && (
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+            <h2 className="text-sm font-semibold text-gray-700 mb-4">
+              Progresso TDD — {currentTask.title}
+            </h2>
+            <TDDProgressBar
+              task={currentTask}
+              cursor={checkpoint.cursor}
+              llm_context={checkpoint.llm_context}
+            />
+          </div>
+        )}
 
         {/* Checkpoint panel (full width) */}
         {checkpoint && <CheckpointPanel checkpoint={checkpoint} />}

@@ -1,4 +1,5 @@
 import type { Checkpoint, CursorStep } from '@/lib/types';
+import { RateLimitGauge } from './RateLimitGauge';
 
 interface CheckpointPanelProps {
   checkpoint: Checkpoint | null;
@@ -42,7 +43,7 @@ export function CheckpointPanel({ checkpoint }: CheckpointPanelProps) {
     return null;
   }
 
-  const { cursor, llm_context, phase, session_id, started_at, last_heartbeat, recovery } = checkpoint;
+  const { cursor, llm_context, phase, session_id, started_at, last_heartbeat, recovery, rate_limit } = checkpoint;
 
   const currentTaskId = cursor.current_task_id ?? 'Nenhuma';
   const stepColor = stepColors[cursor.step] || 'bg-gray-100 text-gray-700';
@@ -112,6 +113,9 @@ export function CheckpointPanel({ checkpoint }: CheckpointPanelProps) {
         </div>
         <div className="text-xs text-gray-600">
           {calculateUptime(started_at, last_heartbeat)}
+        </div>
+        <div className="pt-2">
+          <RateLimitGauge rate_limit={rate_limit ?? null} />
         </div>
       </div>
 
