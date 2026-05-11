@@ -36,10 +36,10 @@ checkpoint, and processes all pending tasks in order.
 **Example:**
 
 ```bash
-$ squire run orchestrator-dashboard
-→ Iniciando squire para 'orchestrator-dashboard'...
+$ squire run squire-dashboard
+→ Iniciando squire para 'squire-dashboard'...
 [14:22:01] → Sessão iniciada: sess-20260511-1422-a3f4c1
-[14:22:01] → Projeto: Orchestrator Dashboard (orchestrator-dashboard)
+[14:22:01] → Projeto: Squire Dashboard (squire-dashboard)
 [14:22:01] → ==================================================
 [14:22:01] → Task [task-001]: Setup Next.js scaffolding
 [14:22:01] → ==================================================
@@ -59,8 +59,8 @@ Like `run` but in background via `nohup`, with stdout redirected to
 `/tmp/squire.log`. Follow with `squire log`.
 
 ```bash
-$ squire bg orchestrator-dashboard
-→ Iniciando 'orchestrator-dashboard' em background → /tmp/squire.log
+$ squire bg squire-dashboard
+→ Iniciando 'squire-dashboard' em background → /tmp/squire.log
 ✓ Rodando com PID 28471
   Acompanhe com: squire log
 ```
@@ -71,8 +71,8 @@ Resumes an interrupted session from the checkpoint. Add `bg` to resume
 in background.
 
 ```bash
-$ squire resume orchestrator-dashboard
-→ Retomando 'orchestrator-dashboard' do checkpoint...
+$ squire resume squire-dashboard
+→ Retomando 'squire-dashboard' do checkpoint...
 [14:35:12] → session_resumed
 [14:35:12] → Cursor: task-003, step=homologation, attempt 2/5
 ```
@@ -106,11 +106,11 @@ $ squire status
 ✓ Sessão ativa: sess-20260511-1422-a3f4c1 (PID 28471)
 
 === Projetos ===
-  orchestrator-dashboard  status=implementing  tasks=4/11
+  squire-dashboard  status=implementing  tasks=4/11
   pilotinho               status=completed     tasks=8/8
 
 === Rate limit ===
-  orchestrator-dashboard: 3/10 calls  (janela reseta em 18.4min)
+  squire-dashboard: 3/10 calls  (janela reseta em 18.4min)
 
 === Budget ===
   Hoje: $1.247 / $10.00  (12% usado)  |  tokens: 24,381
@@ -168,7 +168,7 @@ unblocks all blocked tasks. Clears `rejection_summaries` and
 `no_progress_streak` to prevent immediate loop-detection retriggering.
 
 ```bash
-$ squire unblock orchestrator-dashboard task-005
+$ squire unblock squire-dashboard task-005
   ✓ task-005 → pending  (Add commit log empty state)
 
 1 task(s) desbloqueada(s).
@@ -183,12 +183,12 @@ Resets tasks to `pending` **and** discards work with `git reset HEAD` +
 in the project. Also clears the checkpoint cursor.
 
 ```bash
-$ squire reset orchestrator-dashboard task-005
+$ squire reset squire-dashboard task-005
   ✓ task-005 → pending  (Add commit log empty state)
 
 1 task(s) resetada(s).
   ✓ checkpoint cursor resetado
-⚠ Limpando git state em /home/ai-debian/projects/orchestrator-dashboard
+⚠ Limpando git state em /home/ai-debian/squire-dashboard
 ✓ git checkout -- . OK
 ```
 
@@ -208,7 +208,7 @@ shape, see [Tasks](tasks.md).
 Lists tasks with visual status. Shortcut: `squire tasks <project>` (no subcommand).
 
 ```bash
-$ squire tasks orchestrator-dashboard
+$ squire tasks squire-dashboard
   ✓ [task-001] Setup Next.js scaffolding
   ✓ [task-002] Add fixture data loaders
   ⟳ [task-003] Implement ProjectCard component
@@ -254,7 +254,7 @@ Up to 3 interactive refinement cycles. At the end, asks whether to
 replace or append to the current `tasks.json`.
 
 ```bash
-$ squire tasks plan orchestrator-dashboard --desc "Next.js page reading JSON state"
+$ squire tasks plan squire-dashboard --desc "Next.js page reading JSON state"
 [planning] Claude gerando rascunho...
 [planning] 11 tasks propostas. Refinar? [y/N] n
 [planning] Modo: (s)ubstituir / (a)nexar / (c)ancelar? s

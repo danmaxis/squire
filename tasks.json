@@ -80,7 +80,7 @@
     {
       "id": "task-004",
       "title": "Layout base com sidebar e área principal",
-      "description": "Criar o layout raiz (src/app/layout.tsx) com: sidebar à esquerda contendo logo/título 'Orchestrator' e lista de projetos navegável; área principal à direita que renderiza a rota ativa. Usar Tailwind para layout responsivo. A sidebar deve mostrar cada projeto como item clicável com StatusBadge ao lado do nome. Mobile: sidebar vira menu hamburger.",
+      "description": "Criar o layout raiz (src/app/layout.tsx) com: sidebar à esquerda contendo logo/título 'Squire' e lista de projetos navegável; área principal à direita que renderiza a rota ativa. Usar Tailwind para layout responsivo. A sidebar deve mostrar cada projeto como item clicável com StatusBadge ao lado do nome. Mobile: sidebar vira menu hamburger.",
       "status": "pending",
       "assigned_to": "local_llm",
       "attempts": 0,

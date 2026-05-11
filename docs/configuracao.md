@@ -123,10 +123,10 @@ Metadata do projeto. Schema: [`models.Project`](../models.py).
 
 ```json
 {
-  "id": "orchestrator-dashboard",
-  "name": "Orchestrator Dashboard",
+  "id": "squire-dashboard",
+  "name": "Squire Dashboard",
   "description": "Painel Next.js mostrando o estado dos projetos do squire",
-  "repo_path": "/home/ai-debian/projects/orchestrator-dashboard",
+  "repo_path": "/home/ai-debian/squire-dashboard",
   "stack": ["typescript", "nextjs", "tailwind"],
   "status": "implementing",
   "created_at": "2026-03-24T18:32:00Z",
@@ -170,7 +170,7 @@ Contadores agregados do dia. Auto-resetado quando o dia UTC vira.
     "journal-synth": 0.0
   },
   "daily_calls_unknown_cost": 0,
-  "projects_touched_today": ["orchestrator-dashboard"],
+  "projects_touched_today": ["squire-dashboard"],
   "tasks_completed_today": 4,
   "approval_first_try_rate": 0.75
 }

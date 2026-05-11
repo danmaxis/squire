@@ -16,7 +16,7 @@ para executar projetos de software de forma semi-autônoma:
 
 A proporção-alvo é **30 chamadas locais para cada 1 do Claude Code**.
 
-O primeiro projeto conduzido pelo orquestrador é o **Orchestrator Dashboard**:
+O primeiro projeto conduzido pelo orquestrador é o **Squire Dashboard**:
 uma página Next.js que mostra o estado dos projetos em tempo real, lendo
 arquivos JSON do filesystem. É o projeto se observando nascer.
 
@@ -49,7 +49,7 @@ arquivos JSON do filesystem. É o projeto se observando nascer.
 ├── alerts.json                       ← alertas ativos
 ├── global-stats.json                 ← métricas agregadas
 ├── projects/
-│   ├── orchestrator-dashboard/       ← projeto-piloto
+│   ├── squire-dashboard/             ← projeto-piloto
 │   │   ├── project.json
 │   │   ├── tasks.json
 │   │   ├── history.json
@@ -128,7 +128,7 @@ São duas interações diferentes com o Claude Code:
   5 tentativas, me ajuda a desbloquear." Resultado: instruções que voltam
   pro LLM local como extra_instructions.
 
-## Projeto-piloto: Orchestrator Dashboard
+## Projeto-piloto: Squire Dashboard
 
 ### Stack
 - **Next.js** (App Router) + TypeScript + Tailwind CSS
@@ -149,7 +149,7 @@ diretório local com dados de exemplo. Em produção, monta o volume
 `/mnt/user/data/squire/` (read-only).
 
 ### Tasks do projeto
-Ver `projects/orchestrator-dashboard/tasks.json` para o backlog completo.
+Ver `projects/squire-dashboard/tasks.json` para o backlog completo.
 
 ## Convenções
 
@@ -232,7 +232,7 @@ Regras:
 
 ### Estrutura de diretórios (dashboard)
 ```
-orchestrator-dashboard/
+squire-dashboard/
 ├── src/
 │   ├── app/
 │   │   ├── layout.tsx
@@ -282,7 +282,7 @@ SQUIRE_HEARTBEAT=300
 
 ### Dashboard (Next.js)
 ```bash
-ORCHESTRATOR_DATA_PATH=/mnt/user/data/squire
+SQUIRE_DATA_PATH=/home/ai-debian/squire-state
 NEXT_PUBLIC_REFRESH_INTERVAL=30000
 ```
 
@@ -291,26 +291,26 @@ NEXT_PUBLIC_REFRESH_INTERVAL=30000
 ### Squire
 ```bash
 cd /caminho/do/squire
-python squire.py orchestrator-dashboard          # execução normal
-python squire.py orchestrator-dashboard --dry-run # simula sem executar
-python squire.py orchestrator-dashboard --resume  # retoma de crash
+python squire.py squire-dashboard          # execução normal
+python squire.py squire-dashboard --dry-run # simula sem executar
+python squire.py squire-dashboard --resume  # retoma de crash
 ```
 
 ### Dashboard (dev)
 ```bash
-cd /caminho/do/orchestrator-dashboard
+cd /caminho/do/squire-dashboard
 npm install
 npm run dev
 ```
 
 ### Dashboard (produção)
 ```bash
-docker build -t orchestrator-dashboard .
+docker build -t squire-dashboard .
 # Pedir ao Danilo para criar o container no Unraid com:
-#   - Imagem: orchestrator-dashboard
+#   - Imagem: squire-dashboard
 #   - Porta: 3100:3000
-#   - Volume: /mnt/user/data/squire:/data:ro
-#   - Env: ORCHESTRATOR_DATA_PATH=/data
+#   - Volume: /home/ai-debian/squire-state:/data:ro
+#   - Env: SQUIRE_DATA_PATH=/data
 ```
 
 ## Notas para o Claude Code
