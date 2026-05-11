@@ -129,7 +129,7 @@ After RED, squire computes SHA256 of each test file and protects that
 list throughout the task. If the backend modifies a test during
 implementation:
 
-1. Squire detects via hash mismatch ([`inner_loop.py:80`](../../inner_loop.py))
+1. Squire detects via hash mismatch ([`inner_loop.py:81`](../../inner_loop.py))
 2. Reverts the file via `git checkout`
 3. Returns error to the backend with a clear message ("PROIBIDO modificar test_*.py")
 
@@ -181,7 +181,7 @@ routing, set env vars pointing to different models, e.g.,
 Tasks with `effort=low` that enter a loop (same rejection repeated in N
 rounds) trigger **early escalation**: Claude implements directly instead
 of having the local LLM keep trying. Logic in
-[`squire.py:889`](../../squire.py): "easy tasks that aren't converging
+[`squire.py:951`](../../squire.py): "easy tasks that aren't converging
 indicate either bad description or obscure edge case — calling Claude
 directly is cheaper than 3 more local rounds".
 

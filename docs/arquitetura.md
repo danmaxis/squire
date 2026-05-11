@@ -102,7 +102,7 @@ crashar no meio, `squire resume` reposiciona o cursor exatamente onde parou.
 Os status do enum `TaskStatus` ([`models.py:25`](../models.py)) são: `pending`,
 `implementing`, `testing`, `homologating`, `completed`, `blocked`.
 
-Em paralelo ao status da task, o `Cursor` ([`models.py:171`](../models.py))
+Em paralelo ao status da task, o `Cursor` ([`models.py:175`](../models.py))
 rastreia o `CursorStep` corrente dentro de uma rodada: `planning`, `red_phase`
 (TDD: escrita de testes antes da implementação), `llm_execution`, `testing`,
 `homologation`, `completed`.
@@ -110,7 +110,7 @@ rastreia o `CursorStep` corrente dentro de uma rodada: `planning`, `red_phase`
 ### O que acontece dentro de uma rodada
 
 1. **Snapshot de testes** (TDD) — antes da implementação, `InnerLoop.snapshot_test_hashes`
-   ([`inner_loop.py:71`](../inner_loop.py)) calcula SHA256 de cada `test_*.py`.
+   ([`inner_loop.py:72`](../inner_loop.py)) calcula SHA256 de cada `test_*.py`.
    Após a execução, `check_test_integrity` compara; se um teste foi modificado,
    o squire reverte via `git checkout` e devolve erro para o LLM.
 2. **Fase RED** (se `task.tdd=True`) — escreve testes falhos. Pode ser feita pelo
@@ -119,7 +119,7 @@ rastreia o `CursorStep` corrente dentro de uma rodada: `planning`, `red_phase`
    monta instrução, chama backend, roda testes. A cada 5 falhas, pede
    ajuda técnica ao Claude Code (`TechnicalEscalation.unblock`).
 4. **Gate mecânico** — antes de gastar uma call ao Claude Code,
-   `_pre_homologation_checks` ([`squire.py:504`](../squire.py)) roda
+   `_pre_homologation_checks` ([`squire.py:567`](../squire.py)) roda
    typecheckers/compiladores por linguagem (tsc, cargo check, mvn compile,
    go build, etc.) e detecta padrões anti-vibe-coding (`any`, `# type: ignore`,
    `unsafe`, `catch unreachable`). Falha → volta para o inner loop sem
@@ -184,7 +184,7 @@ em [Estado e recuperação](estado-e-recuperacao.md).
 > rescrevê-los. O squire calcula hash dos testes antes da implementação,
 > verifica depois, e reverte via git se foram modificados. A regra também
 > aparece literalmente em toda instrução enviada ao backend (ver
-> `inner_loop.py:252`). Defense in depth: prompt + check + revert.
+> `inner_loop.py:254`). Defense in depth: prompt + check + revert.
 
 > **Remark:** parallelismo entre tasks não é suportado (uma task por vez por
 > projeto, um projeto por vez por session lock). A escolha foi deliberada:

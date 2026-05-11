@@ -129,7 +129,7 @@ Depois da fase RED, o squire calcula SHA256 de cada arquivo de teste e
 protege essa lista durante todo o resto da task. Se o backend modificar
 um teste durante a implementação:
 
-1. O squire detecta via hash mismatch ([`inner_loop.py:80`](../inner_loop.py))
+1. O squire detecta via hash mismatch ([`inner_loop.py:81`](../inner_loop.py))
 2. Reverte o arquivo via `git checkout`
 3. Retorna erro para o backend com mensagem clara ("PROIBIDO modificar test_*.py")
 
@@ -181,7 +181,7 @@ ex: `SQUIRE_MODEL_HIGH=qwen-72b-instruct`.
 Tasks com `effort=low` que entram em loop (mesma rejeição repetida em N
 rodadas) acionam **escalação antecipada**: o Claude implementa diretamente
 em vez de continuar mandando o local tentar. A lógica está em
-[`squire.py:889`](../squire.py): "tasks fáceis que não estão convergindo
+[`squire.py:951`](../squire.py): "tasks fáceis que não estão convergindo
 indicam ou descrição ruim ou edge case obscuro — chamar o Claude direto
 é mais barato que mais 3 rodadas locais".
 

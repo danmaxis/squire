@@ -106,7 +106,7 @@ where it left off. Statuses from the `TaskStatus` enum
 `testing`, `homologating`, `completed`, `blocked`.
 
 In parallel with task status, the `Cursor`
-([`models.py:171`](../../models.py)) tracks the current `CursorStep`
+([`models.py:175`](../../models.py)) tracks the current `CursorStep`
 within a round: `planning`, `red_phase` (TDD: writing tests before
 implementation), `llm_execution`, `testing`, `homologation`, `completed`.
 
@@ -114,7 +114,7 @@ implementation), `llm_execution`, `testing`, `homologation`, `completed`.
 
 1. **Test snapshot** (TDD) — before implementation,
    `InnerLoop.snapshot_test_hashes`
-   ([`inner_loop.py:71`](../../inner_loop.py)) computes SHA256 of each
+   ([`inner_loop.py:72`](../../inner_loop.py)) computes SHA256 of each
    `test_*.py`. After execution, `check_test_integrity` compares; if a
    test was modified, squire reverts via `git checkout` and returns an
    error to the LLM.
@@ -124,7 +124,7 @@ implementation), `llm_execution`, `testing`, `homologation`, `completed`.
    instruction, call backend, run tests. Every 5 failures, ask Claude
    Code for help (`TechnicalEscalation.unblock`).
 4. **Mechanical gate** — before spending a Claude Code call,
-   `_pre_homologation_checks` ([`squire.py:504`](../../squire.py)) runs
+   `_pre_homologation_checks` ([`squire.py:567`](../../squire.py)) runs
    typecheckers/compilers per language (tsc, cargo check, mvn compile,
    go build, etc.) and detects anti-vibe-coding patterns (`any`,
    `# type: ignore`, `unsafe`, `catch unreachable`). Failure → back to
@@ -190,7 +190,7 @@ Details in [State and Recovery](state-and-recovery.md).
 > Local LLMs have a strong bias toward "making tests pass" — including
 > rewriting them. Squire hashes tests before implementation, verifies
 > after, and reverts via git if modified. The rule also appears literally
-> in every instruction sent to the backend (see `inner_loop.py:252`).
+> in every instruction sent to the backend (see `inner_loop.py:254`).
 > Defense in depth: prompt + check + revert.
 
 > **Remark:** parallelism between tasks is not supported (one task at a

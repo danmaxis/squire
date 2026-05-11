@@ -34,7 +34,7 @@ Para cada chamada (Claude Code ou backend local), o squire grava:
 Esses campos vivem no struct `TokenUsage` ([`models.py:266`](../models.py)).
 
 A contabilidade é centralizada em `Squire._account_call`
-([`squire.py:88`](../squire.py)) que:
+([`squire.py:100`](../squire.py)) que:
 
 1. Soma `cost_usd` em `GlobalStats.cost_estimate_usd` (acumulado do dia)
 2. Soma `tokens` em `GlobalStats.daily_tokens`

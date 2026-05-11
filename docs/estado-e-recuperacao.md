@@ -114,7 +114,7 @@ Pydantic: [`models.Checkpoint`](../models.py).
 
 ### `history.json` — eventos da sessão
 
-Append-only. Cada evento é um `HistoryEvent` ([`models.py:139`](../models.py)):
+Append-only. Cada evento é um `HistoryEvent` ([`models.py:143`](../models.py)):
 
 ```json
 {
@@ -233,7 +233,7 @@ dois commits automáticos:
 
 ### 1. Antes de cada task (auto-snapshot)
 
-`_auto_snapshot_commit` ([`squire.py:113`](../squire.py)) roda:
+`_auto_snapshot_commit` ([`squire.py:154`](../squire.py)) roda:
 
 ```bash
 git add -A
@@ -247,7 +247,7 @@ trabalho real seria perdido.
 
 ### 2. Após homologação aprovada (auto-commit da task)
 
-`_commit_task_completion` ([`squire.py:162`](../squire.py)):
+`_commit_task_completion` ([`squire.py:203`](../squire.py)):
 
 ```bash
 git add -A
@@ -348,7 +348,7 @@ Para confirmar, digite exatamente: my-app foxtrot
 > **Insight — palavra NATO como confirmação.**
 > Alpha, bravo, charlie... zulu. Uma palavra aleatória do alfabeto fonético
 > é o suficiente para impedir `rm` acidental por copy-paste do histórico ou
-> autocompletar do shell. Veja [`squire.py:1087`](../squire.py).
+> autocompletar do shell. Veja [`squire.py:1179`](../squire.py).
 
 ## Cenários comuns
 

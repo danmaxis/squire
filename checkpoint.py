@@ -17,7 +17,7 @@ from typing import Optional, TypeVar
 from pydantic import BaseModel
 
 from models import (
-    Alert, AlertList, AlertSeverity, Checkpoint, GlobalStats,
+    Alert, AlertList, AlertSeverity, Checkpoint, CommitLog, GlobalStats,
     History, HistoryEvent, Project, SessionLock, TaskList,
 )
 import config
@@ -180,6 +180,18 @@ def add_alert(
         message=message,
     ))
     save_model(config.ALERTS_FILE, alerts)
+
+
+# ── Commits ────────────────────────────────────────────────────────
+
+def save_commits(project_id: str, commits: CommitLog) -> None:
+    """Persiste o log de commits do projeto em commits.json."""
+    save_model(config.project_dir(project_id) / "commits.json", commits)
+
+
+def load_commits(project_id: str) -> CommitLog:
+    result = load_model(config.project_dir(project_id) / "commits.json", CommitLog)
+    return result or CommitLog()
 
 
 # ── Global Stats ───────────────────────────────────────────────────

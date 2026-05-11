@@ -40,6 +40,8 @@ from models import (
     Actor,
     AlertSeverity,
     Checkpoint,
+    CommitLog,
+    CommitSummary,
     CursorStep,
     Cursor,
     EventType,
@@ -239,12 +241,58 @@ class Squire:
 
             if commit.returncode == 0:
                 log(f"Task commitada: {msg}", "ok")
+                self._refresh_commits_json()
             elif "nothing to commit" in commit.stdout + commit.stderr:
                 log("Nada para commitar (working tree já limpo)", "info")
             else:
                 log(f"Falha ao commitar task: {commit.stderr[:100]}", "warn")
         except Exception as e:
             log(f"Erro ao commitar task: {e}", "warn")
+
+    def _refresh_commits_json(self, limit: int = 100) -> None:
+        """
+        Recompila projects/<id>/commits.json a partir do git log do repo.
+
+        O dashboard lê este arquivo em vez de fazer git log no container —
+        evita shell-exec em runtime, ignora repos sem .git e mantém
+        diff_summary acessível para a UI.
+        """
+        repo = self.project.repo_path
+        try:
+            fmt = "%H%x1f%s%x1f%aI%x1f"
+            log_out = subprocess.run(
+                ["git", "log", f"-n{limit}", f"--format={fmt}", "--name-only"],
+                cwd=repo, capture_output=True, text=True, timeout=10,
+            )
+            if log_out.returncode != 0 or not log_out.stdout.strip():
+                return
+
+            commits: list[CommitSummary] = []
+            for block in log_out.stdout.split("\n\n"):
+                block = block.strip()
+                if not block:
+                    continue
+                header, _, files_block = block.partition("\n")
+                parts = header.split("\x1f")
+                if len(parts) < 3:
+                    continue
+                sha, message, ts = parts[0], parts[1], parts[2]
+                files = [ln for ln in files_block.split("\n") if ln.strip()]
+                try:
+                    when = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                except ValueError:
+                    when = datetime.now(timezone.utc)
+                commits.append(CommitSummary(
+                    sha=sha,
+                    message=message,
+                    timestamp=when,
+                    diff_summary=f"{len(files)} arquivo(s) alterado(s)",
+                    files_changed=files,
+                ))
+
+            ckpt.save_commits(self.project.id, CommitLog(commits=commits))
+        except Exception as e:
+            log(f"Falha ao gerar commits.json: {e}", "warn")
 
     # ── Buscar próxima task ────────────────────────────────────────
 
