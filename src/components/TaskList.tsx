@@ -96,6 +96,29 @@ export default function TaskList({ tasks }: TaskListProps) {
                   {task.test_author}
                 </span>
               )}
+              {task.skip_homologation && (
+                <span
+                  className="px-2 py-0.5 rounded text-xs font-medium text-indigo-700 bg-indigo-50"
+                  title="Auto-aprovada após inner loop (sem review do Claude Code)"
+                >
+                  fast-track
+                </span>
+              )}
+              {(task.cost_usd > 0 || (task.max_usd ?? 0) > 0) && (
+                <span
+                  className={`px-2 py-0.5 rounded text-xs font-medium font-mono ${
+                    task.max_usd && task.cost_usd >= task.max_usd
+                      ? 'text-red-700 bg-red-50'
+                      : 'text-gray-700 bg-gray-100'
+                  }`}
+                  title="Custo gasto / cap da task"
+                >
+                  ${task.cost_usd.toFixed(2)}
+                  {task.max_usd && task.max_usd > 0
+                    ? ` / $${task.max_usd.toFixed(2)}`
+                    : ''}
+                </span>
+              )}
               {task.rejection_summaries.length > 0 && (
                 <span className="px-2 py-0.5 rounded text-xs font-medium text-red-700 bg-red-50">
                   {task.rejection_summaries.length === 1
@@ -103,9 +126,20 @@ export default function TaskList({ tasks }: TaskListProps) {
                     : `${task.rejection_summaries.length} rejeições`}
                 </span>
               )}
+              {task.no_progress_streak >= 2 && task.no_progress_streak < 3 && (
+                <span
+                  className="px-2 py-0.5 rounded text-xs font-medium text-amber-700 bg-amber-50"
+                  title="Nenhum arquivo modificado nos últimos ciclos"
+                >
+                  Sem progresso ({task.no_progress_streak})
+                </span>
+              )}
               {task.no_progress_streak >= 3 && (
-                <span className="px-2 py-0.5 rounded text-xs font-medium text-orange-700 bg-orange-50">
-                  Sem progresso ({task.no_progress_streak} ciclos)
+                <span
+                  className="px-2 py-0.5 rounded text-xs font-medium text-red-700 bg-red-100"
+                  title="Loop detectado — escalação iminente"
+                >
+                  Loop ({task.no_progress_streak} ciclos)
                 </span>
               )}
               <button className="text-gray-400 hover:text-gray-600 ml-2">

@@ -13,6 +13,9 @@ describe('types contract', () => {
       daily_local_llm_calls: 0,
       date: '2026-03-29',
       cost_estimate_usd: 0,
+      daily_tokens: 0,
+      cost_by_model: {},
+      daily_calls_unknown_cost: 0,
       tasks_completed_today: 0,
       approval_first_try_rate: 0,
       projects_touched_today: [],
@@ -54,6 +57,8 @@ describe('types contract', () => {
       effort: 'medium',
       tdd: false,
       test_author: 'claude',
+      max_usd: null,
+      cost_usd: 0,
     }
     expectTypeOf(t).toMatchTypeOf<Task>()
   })
@@ -79,6 +84,9 @@ describe('types contract', () => {
       window_started_at: '2026-03-29T00:00:00Z',
       window_duration_minutes: 30,
       max_calls_per_window: 10,
+      max_daily_usd: 0,
+      daily_cost_usd: 0,
+      daily_cost_date: '',
     }
     const recovery: RecoveryHints = {
       can_resume: true,

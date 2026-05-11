@@ -23,6 +23,8 @@ const createMockTask = (overrides: Partial<Task> = {}): Task => ({
   effort: 'medium',
   tdd: false,
   test_author: 'claude',
+  max_usd: null,
+  cost_usd: 0,
   ...overrides,
 });
 
@@ -46,6 +48,8 @@ const createTaskWithId = (id: string, title: string, overrides: Partial<Task> = 
   effort: 'medium',
   tdd: false,
   test_author: 'claude',
+  max_usd: null,
+  cost_usd: 0,
   ...overrides,
 });
 
@@ -124,8 +128,9 @@ describe('TaskList', () => {
     expect(screen.getByText('3 rejeições')).toHaveTextContent('3 rejeições');
   });
 
-  it('renders no-progress warning when no_progress_streak >= 3', () => {
+  it('renders escalating no-progress warnings based on streak length', () => {
     const tasks: Task[] = [
+      createMockTask({ no_progress_streak: 1, id: 'task-0' }),
       createMockTask({ no_progress_streak: 2, id: 'task-1' }),
       createMockTask({ no_progress_streak: 3, id: 'task-2' }),
       createMockTask({ no_progress_streak: 5, id: 'task-3' }),
@@ -133,9 +138,37 @@ describe('TaskList', () => {
 
     render(<TaskList tasks={tasks} />);
 
-    expect(screen.getByText('Sem progresso (3 ciclos)')).toBeInTheDocument();
-    expect(screen.getByText('Sem progresso (5 ciclos)')).toBeInTheDocument();
-    expect(screen.queryByText('Sem progresso (2 ciclos)')).not.toBeInTheDocument();
+    // streak 2 → amber "Sem progresso (n)"; streak ≥ 3 → red "Loop (n ciclos)"
+    expect(screen.getByText('Sem progresso (2)')).toBeInTheDocument();
+    expect(screen.getByText('Loop (3 ciclos)')).toBeInTheDocument();
+    expect(screen.getByText('Loop (5 ciclos)')).toBeInTheDocument();
+    expect(screen.queryByText('Sem progresso (1)')).not.toBeInTheDocument();
+  });
+
+  it('renders cost chip when cost_usd or max_usd is set', () => {
+    const tasks: Task[] = [
+      createMockTask({ id: 't-cap', cost_usd: 0.5, max_usd: 1.0 }),
+      createMockTask({ id: 't-overrun', cost_usd: 1.5, max_usd: 1.0 }),
+      createMockTask({ id: 't-no-cap', cost_usd: 0.42, max_usd: null }),
+    ];
+
+    render(<TaskList tasks={tasks} />);
+
+    expect(screen.getByText('$0.50 / $1.00')).toBeInTheDocument();
+    const overrun = screen.getByText('$1.50 / $1.00');
+    expect(overrun).toHaveClass('bg-red-50');
+    expect(screen.getByText('$0.42')).toBeInTheDocument();
+  });
+
+  it('renders fast-track badge when skip_homologation is true', () => {
+    const tasks: Task[] = [
+      createMockTask({ id: 't-fast', skip_homologation: true }),
+      createMockTask({ id: 't-normal', skip_homologation: false }),
+    ];
+
+    render(<TaskList tasks={tasks} />);
+
+    expect(screen.getAllByText('fast-track').length).toBe(1);
   });
 
   it('does not render indicators when values are zero/false', () => {

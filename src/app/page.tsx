@@ -6,8 +6,10 @@ import Link from 'next/link';
 import { ProjectCard } from '@/components/ProjectCard';
 import AlertBanner from '@/components/AlertBanner';
 import GlobalStats from '@/components/GlobalStats';
+import BudgetCard from '@/components/BudgetCard';
 import { RefreshController } from '@/components/RefreshController';
-import type { Alert } from '@/lib/types';
+import { getCheckpoint } from '@/lib/data';
+import type { Alert, RateLimitState } from '@/lib/types';
 
 const DATA_PATH = process.env.SQUIRE_DATA_PATH ?? join(process.cwd(), 'fixtures', 'data');
 
@@ -86,12 +88,29 @@ async function getGlobalStatsData() {
   return stats ?? null;
 }
 
+async function getRateLimits(
+  projectIds: string[]
+): Promise<Array<{ project_id: string; rate_limit: RateLimitState }>> {
+  const checkpoints = await Promise.all(
+    projectIds.map(async (id) => {
+      const cp = await getCheckpoint(id);
+      return cp ? { project_id: id, rate_limit: cp.rate_limit } : null;
+    })
+  );
+  return checkpoints.filter(
+    (c): c is { project_id: string; rate_limit: RateLimitState } => c !== null
+  );
+}
+
 export default async function HomePage() {
   const [projectData, alerts, stats] = await Promise.all([
     getProjectsWithProgress(),
     getAlerts(),
     getGlobalStatsData(),
   ]);
+  const rateLimits = await getRateLimits(
+    projectData.map(({ project }) => project.id)
+  );
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
@@ -117,8 +136,15 @@ export default async function HomePage() {
           </Suspense>
         </div>
 
-        {/* Métricas globais */}
-        <GlobalStats stats={stats} />
+        {/* Métricas globais + budget */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+          <div className="lg:col-span-2">
+            <GlobalStats stats={stats} />
+          </div>
+          <div>
+            <BudgetCard stats={stats} rateLimits={rateLimits} />
+          </div>
+        </div>
 
         {/* Lista de projetos */}
         {projectData.length === 0 ? (

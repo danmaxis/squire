@@ -45,6 +45,8 @@ export interface Task {
   effort: Effort;
   tdd: boolean;
   test_author: TestAuthor;
+  max_usd: number | null;
+  cost_usd: number;
 }
 
 export interface TaskList {
@@ -98,6 +100,9 @@ export interface RateLimitState {
   window_started_at: string;
   window_duration_minutes: number;
   max_calls_per_window: number;
+  max_daily_usd: number;
+  daily_cost_usd: number;
+  daily_cost_date: string;
 }
 
 export interface RecoveryHints {
@@ -151,7 +156,14 @@ export interface GlobalStats {
   daily_local_llm_calls: number;
   date: string;
   cost_estimate_usd: number;
+  daily_tokens: number;
+  cost_by_model: Record<string, number>;
+  daily_calls_unknown_cost: number;
   projects_touched_today: string[];
   tasks_completed_today: number;
   approval_first_try_rate: number;
+}
+
+export interface HistoryEventWithAgent extends HistoryEvent {
+  agent_used?: string;
 }

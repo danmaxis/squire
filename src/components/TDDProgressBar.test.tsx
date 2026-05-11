@@ -23,6 +23,8 @@ const baseTask: Task = {
   effort: 'medium',
   tdd: true,
   test_author: 'claude',
+  max_usd: null,
+  cost_usd: 0,
 };
 
 const baseCursor: Cursor = {

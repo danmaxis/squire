@@ -10,6 +10,9 @@ describe('RateLimitGauge', () => {
     window_started_at: new Date(fixedNow - 5 * 60000).toISOString(), // 5 min ago
     window_duration_minutes: 10,
     max_calls_per_window: 10,
+      max_daily_usd: 0,
+      daily_cost_usd: 0,
+      daily_cost_date: "",
     ...overrides,
   });
 
@@ -32,6 +35,9 @@ describe('RateLimitGauge', () => {
       window_started_at: new Date(fixedNow - 5 * 60000).toISOString(),
       window_duration_minutes: 10,
       max_calls_per_window: 10,
+      max_daily_usd: 0,
+      daily_cost_usd: 0,
+      daily_cost_date: "",
     };
 
     render(<RateLimitGauge rate_limit={rateLimit} />);
@@ -48,6 +54,9 @@ describe('RateLimitGauge', () => {
       window_started_at: new Date(fixedNow - 5 * 60000).toISOString(),
       window_duration_minutes: 10,
       max_calls_per_window: 10,
+      max_daily_usd: 0,
+      daily_cost_usd: 0,
+      daily_cost_date: "",
     };
 
     render(<RateLimitGauge rate_limit={rateLimit} />);
@@ -63,6 +72,9 @@ describe('RateLimitGauge', () => {
       window_started_at: new Date(fixedNow - 5 * 60000).toISOString(),
       window_duration_minutes: 10,
       max_calls_per_window: 10,
+      max_daily_usd: 0,
+      daily_cost_usd: 0,
+      daily_cost_date: "",
     };
 
     render(<RateLimitGauge rate_limit={rateLimit} />);
@@ -78,6 +90,9 @@ describe('RateLimitGauge', () => {
       window_started_at: new Date(fixedNow - 5 * 60000).toISOString(),
       window_duration_minutes: 10,
       max_calls_per_window: 10,
+      max_daily_usd: 0,
+      daily_cost_usd: 0,
+      daily_cost_date: "",
     };
 
     render(<RateLimitGauge rate_limit={rateLimit} />);
@@ -91,6 +106,9 @@ describe('RateLimitGauge', () => {
       window_started_at: new Date(fixedNow - 15 * 60000).toISOString(), // 15 min ago
       window_duration_minutes: 10,
       max_calls_per_window: 10,
+      max_daily_usd: 0,
+      daily_cost_usd: 0,
+      daily_cost_date: "",
     };
 
     render(<RateLimitGauge rate_limit={rateLimit} />);

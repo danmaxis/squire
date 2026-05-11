@@ -63,9 +63,19 @@ export default async function ProjectPage({ params }: { params: { id: string } }
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{project.name}</h1>
             <p className="text-sm text-gray-500 mt-1">{project.description}</p>
           </div>
-          <span className={`px-3 py-1 rounded-full text-sm font-semibold ${statusColors[status] ?? 'bg-gray-100 text-gray-700'}`}>
-            {statusLabels[status] ?? status}
-          </span>
+          <div className="flex items-center gap-2 flex-wrap">
+            {project.coding_backend && (
+              <span
+                className="px-2.5 py-1 rounded-full text-xs font-medium font-mono bg-gray-100 text-gray-700"
+                title="Backend de coding usado neste projeto"
+              >
+                ⚙ {project.coding_backend}
+              </span>
+            )}
+            <span className={`px-3 py-1 rounded-full text-sm font-semibold ${statusColors[status] ?? 'bg-gray-100 text-gray-700'}`}>
+              {statusLabels[status] ?? status}
+            </span>
+          </div>
         </div>
 
         {/* Live TDD progress (only when a task is actively running) */}

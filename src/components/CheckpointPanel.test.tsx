@@ -31,6 +31,9 @@ const createCheckpoint = (overrides?: Partial<Checkpoint>): Checkpoint => ({
     window_started_at: '2026-03-29T10:00:00Z',
     window_duration_minutes: 60,
     max_calls_per_window: 100,
+    max_daily_usd: 0,
+    daily_cost_usd: 0,
+    daily_cost_date: '',
   },
   recovery: {
     can_resume: true,
