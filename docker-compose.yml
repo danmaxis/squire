@@ -1,11 +1,11 @@
 version: '3.8'
 
 services:
-  orchestrator-dashboard:
+  squire-dashboard:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: orchestrator-dashboard
+    container_name: squire-dashboard
     restart: unless-stopped
     ports:
       - "3100:3000"
@@ -13,13 +13,13 @@ services:
       - NODE_ENV=production
       - PORT=3000
       - HOSTNAME=0.0.0.0
-      # Aponta para o volume montado com os JSONs do orquestrador
-      - ORCHESTRATOR_DATA_PATH=/data
+      # Aponta para o volume montado com os JSONs do squire
+      - SQUIRE_DATA_PATH=/data
       # Intervalo de polling em ms (default: 30000)
       - NEXT_PUBLIC_REFRESH_INTERVAL=30000
     volumes:
-      # Estado do orquestrador montado como read-only
-      - /mnt/user/data/orchestrator:/data:ro
+      # Estado do squire montado como read-only
+      - /home/ai-debian/squire-state:/data:ro
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
       interval: 30s

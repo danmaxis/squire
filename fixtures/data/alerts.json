@@ -1,7 +1,7 @@
 {
   "alerts": [
     {
-      "project_id": "orchestrator-dashboard",
+      "project_id": "squire-dashboard",
       "severity": "warning",
       "type": "no_progress",
       "task_id": "task-005",

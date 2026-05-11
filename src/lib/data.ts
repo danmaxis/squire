@@ -19,7 +19,7 @@ import type {
 } from './types';
 
 const DATA_PATH =
-  process.env.ORCHESTRATOR_DATA_PATH ?? join(process.cwd(), 'fixtures', 'data');
+  process.env.SQUIRE_DATA_PATH ?? join(process.cwd(), 'fixtures', 'data');
 
 async function readJsonFile<T>(filePath: string): Promise<T | null> {
   try {

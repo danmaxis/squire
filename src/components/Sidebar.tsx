@@ -64,9 +64,9 @@ export default function Sidebar() {
         <div className="h-16 flex items-center justify-between px-6 border-b border-gray-100">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold">
-              O
+              S
             </div>
-            <span className="text-xl font-bold text-gray-800 tracking-tight">Orchestrator</span>
+            <span className="text-xl font-bold text-gray-800 tracking-tight">Squire</span>
           </div>
           <button 
             onClick={toggleSidebar}

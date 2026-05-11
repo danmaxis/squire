@@ -1,6 +1,6 @@
-# Orchestrator Dashboard
+# Squire Dashboard
 
-Este é um dashboard de orquestração construído com Next.js 14, TypeScript e Tailwind CSS.
+Visualização em tempo real do estado do squire (orquestrador local + Claude Code). Next.js 14, TypeScript, Tailwind CSS.
 
 ## Estrutura do Projeto
 

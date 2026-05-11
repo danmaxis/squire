@@ -5,8 +5,8 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Orchestrator Dashboard",
-  description: "Dashboard de orquestração de tarefas",
+  title: "Squire Dashboard",
+  description: "Visualização em tempo real do estado do squire",
 };
 
 export default function RootLayout({

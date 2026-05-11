@@ -9,7 +9,7 @@ import GlobalStats from '@/components/GlobalStats';
 import { RefreshController } from '@/components/RefreshController';
 import type { Alert } from '@/lib/types';
 
-const DATA_PATH = process.env.ORCHESTRATOR_DATA_PATH ?? join(process.cwd(), 'fixtures', 'data');
+const DATA_PATH = process.env.SQUIRE_DATA_PATH ?? join(process.cwd(), 'fixtures', 'data');
 
 interface ProjectJson {
   id: string;
@@ -103,7 +103,7 @@ export default async function HomePage() {
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-              Orchestrator Dashboard
+              Squire Dashboard
             </h1>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
               {projectData.length} projeto{projectData.length !== 1 ? 's' : ''} monitorado
@@ -125,7 +125,7 @@ export default async function HomePage() {
           <div className="text-center py-16 text-gray-400 dark:text-gray-500">
             <p className="text-lg">Nenhum projeto encontrado.</p>
             <p className="text-sm mt-2">
-              Verifique se <code className="font-mono">ORCHESTRATOR_DATA_PATH</code> aponta para o
+              Verifique se <code className="font-mono">SQUIRE_DATA_PATH</code> aponta para o
               diretório correto.
             </p>
           </div>

@@ -14,7 +14,7 @@ describe('data.ts', () => {
   });
 
   it('getTasks returns array from TaskList wrapper', async () => {
-    const tasks = await getTasks('orchestrator-dashboard');
+    const tasks = await getTasks('squire-dashboard');
     expect(Array.isArray(tasks)).toBe(true);
     if (tasks.length > 0) {
       expect(tasks[0]).toHaveProperty('id');
@@ -37,7 +37,7 @@ describe('data.ts', () => {
   });
 
   it('getCheckpoint returns Checkpoint with correct fields or null', async () => {
-    const checkpoint = await getCheckpoint('orchestrator-dashboard');
+    const checkpoint = await getCheckpoint('squire-dashboard');
     if (checkpoint !== null) {
       expect(checkpoint).toHaveProperty('cursor');
       expect(checkpoint).toHaveProperty('llm_context');

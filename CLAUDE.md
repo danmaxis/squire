@@ -1,4 +1,4 @@
-# CLAUDE.md — Orchestrator Dashboard
+# CLAUDE.md — Squire Dashboard
 
 Dashboard Next.js 14 (App Router) que visualiza em tempo real o estado do squire.
 Lê arquivos JSON do filesystem. Deploy como container Docker no Unraid.
@@ -37,7 +37,7 @@ Os JSONs escritos pelo squire devem ser lidos com estes tipos TypeScript (ver sr
 - daily_claude_code_calls, daily_local_llm_calls, cost_estimate_usd
 - tasks_completed_today, approval_first_try_rate, date, projects_touched_today
 
-**Dev data path:** `process.env.ORCHESTRATOR_DATA_PATH ?? path.join(cwd, 'fixtures', 'data')`
+**Dev data path:** `process.env.SQUIRE_DATA_PATH ?? path.join(cwd, 'fixtures', 'data')`
 
 ## Componentes implementados
 
