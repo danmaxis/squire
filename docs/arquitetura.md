@@ -81,6 +81,26 @@ locais para 1 do Claude Code**.
 > commitar é do `Squire`. Isso permite trocar o backend (`litellm` → `opencode`)
 > ou adicionar uma fase RED sem mudar o orquestrador.
 
+### Squire Dashboard como segundo escritor
+
+O squire-dashboard (Next.js, ler `docs/configuracao.md`) é normalmente um
+leitor — faz polling dos JSONs em `SQUIRE_DATA_PATH`. A partir do P3 ele
+também escreve, mas só fora do path crítico do `Squire`:
+
+- `POST /api/alerts/ack` — marca alerta como `acknowledged` ou remove
+  do `alerts.json`.
+- `POST /api/projects/<id>/budget` — patch em `Checkpoint.rate_limit.max_daily_usd`
+  ou `max_calls_per_window`.
+- `POST /api/projects/<id>/tasks/<task-id>/action` — `retry` zera
+  tentativas/rejeições, `approve` força aprovação, `skip` liga
+  `skip_homologation`.
+
+Todas as mutações passam por `writeJsonAtomic` (`.tmp` → `rename`), o mesmo
+padrão de `checkpoint.atomic_write_json`. Antes de mutar, a rota lê
+`session.lock` — se um squire estiver rodando o projeto-alvo, responde
+409 e o operador espera a sessão liberar. Squire continua sendo o único
+escritor enquanto está executando; o dashboard só edita entre sessões.
+
 ## Ciclo de uma task
 
 ```mermaid

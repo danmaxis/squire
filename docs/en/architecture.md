@@ -83,6 +83,27 @@ Costs ~1000× more per call than tier 1, so the goal is a ratio of
 > This lets you swap the backend (`litellm` → `opencode`) or add a RED
 > phase without changing the orchestrator.
 
+### Squire Dashboard as a second writer
+
+The squire-dashboard (Next.js, see `docs/en/configuration.md`) is mostly
+a reader — it polls the JSONs under `SQUIRE_DATA_PATH`. From P3 onwards
+it can also write, but only outside `Squire`'s critical path:
+
+- `POST /api/alerts/ack` — flip `acknowledged` or remove an entry from
+  `alerts.json`.
+- `POST /api/projects/<id>/budget` — patch
+  `Checkpoint.rate_limit.max_daily_usd` or `max_calls_per_window`.
+- `POST /api/projects/<id>/tasks/<task-id>/action` — `retry` resets
+  attempts/rejections, `approve` force-approves homologation, `skip`
+  flips `skip_homologation`.
+
+Every mutation routes through `writeJsonAtomic` (`.tmp` → `rename`),
+the same pattern `checkpoint.atomic_write_json` uses. Before mutating,
+the route reads `session.lock` — if squire is running the target
+project, it responds 409 and the operator waits for the session to
+release. Squire remains the sole writer while running; the dashboard
+edits only between sessions.
+
 ## Task lifecycle
 
 ```mermaid
