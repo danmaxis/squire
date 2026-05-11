@@ -1,80 +1,116 @@
-# Squire — Claude Code + LLM Local
+# Squire
 
-Sistema de orquestração que coordena Claude Code (planejamento e homologação)
-com um LLM local (implementação) para execução semi-autônoma de projetos.
+🇧🇷 Português · [🇬🇧 English](README.en.md)
 
-> Para o briefing completo usado pelo Claude Code, ver [CLAUDE.md](./CLAUDE.md).
+> Um **orquestrador de dois tiers** que coordena um LLM local (implementação)
+> com o Claude Code (revisão) para executar projetos de software de forma
+> semi-autônoma, com proporção-alvo de **30 chamadas locais para 1 do
+> Claude Code**.
+
+```mermaid
+flowchart LR
+    U([Usuário]) -->|squire run my-app| S[Squire]
+    S -->|implementação| LLM[(LLM local<br/>Qwen via LiteLLM)]
+    LLM -->|arquivos modificados| S
+    S -->|review| CC[(Claude Code)]
+    CC -->|approved/rejected| S
+    S -->|estado persistente| FS[(STATE_ROOT/<br/>JSON files)]
+    S -->|git commit| REPO[(repo do projeto)]
+```
+
+## O que é?
+
+Squire é um CLI que toca um projeto de software do início ao fim:
+
+- Lê uma lista de tasks (`tasks.json`).
+- Para cada task, um **LLM local barato** implementa e roda os testes.
+- Quando os testes passam, o **Claude Code** revisa de cima — aprova ou
+  devolve feedback.
+- Aprovado, commit automático; rejeitado, volta para o LLM local com o
+  feedback estruturado.
+- Tudo persistido em JSON: você pode parar/retomar/inspecionar a qualquer
+  momento.
+
+A escolha de dois tiers existe para **otimizar custo sem sacrificar
+qualidade de engenharia**. O LLM local é responsável pelo trabalho
+braçal repetitivo; o Claude Code, pelo julgamento.
 
 ## Quickstart
 
 ```bash
-# Instalar dependências
-pip install -e ".[dev]"
+# 1. Criar um projeto novo (apontando para um repo git existente ou novo)
+$ squire new my-app --repo /home/me/projects/my-app --stack typescript
 
-# Dry run (simula sem executar LLMs)
-python squire.py orchestrator-dashboard --dry-run
+# 2. Editar as tasks (ou pedir o Claude para planejar)
+$ squire tasks plan my-app --desc "API REST para gerenciar tarefas"
 
-# Execução real
-python squire.py orchestrator-dashboard
-
-# Retomar após crash
-python squire.py orchestrator-dashboard --resume
+# 3. Rodar
+$ squire run my-app
 ```
 
-## Estrutura do projeto
+Para opções de execução em background, retomar após crash, ou rodar em
+modo dry-run, veja [`docs/cli.md`](docs/cli.md).
 
-```
+## Documentação completa
+
+### Conceitos
+- [Arquitetura](docs/arquitetura.md) — o modelo dos dois tiers, componentes, fluxo
+- [Tasks](docs/tasks.md) — schema JSON, lifecycle, TDD, effort
+- [Backends](docs/backends.md) — LiteLLM, OpenCode, Crush (e o aider deprecated)
+- [Homologação](docs/homologacao.md) — gate mecânico, escalação técnica, loop detection
+- [Padrão Viking](docs/padrao-viking.md) — restrições de domínio por projeto
+
+### Operação
+- [CLI](docs/cli.md) — referência completa de todos os subcomandos
+- [Configuração](docs/configuracao.md) — env vars, arquivos, precedência
+- [Custos e orçamento](docs/custos-e-orcamento.md) — tracking USD + caps
+- [Estado e recuperação](docs/estado-e-recuperacao.md) — checkpoint, lock, recovery flows
+
+### Diagnóstico
+- [Troubleshooting](docs/troubleshooting.md) — problemas comuns + fixes
+
+## Requisitos
+
+- **Python 3.11+** (Pydantic v2, syntax moderno)
+- **Claude Code CLI** (`claude --print --output-format json`)
+- **Ao menos um backend de coding:**
+  - [LiteLLM](https://docs.litellm.ai/) + modelo local (Qwen, etc.) — recomendado
+  - [opencode](https://opencode.ai) CLI
+  - [crush](https://github.com/charmbracelet/crush) CLI
+- **Git** no repo do projeto (squire faz auto-commit)
+- `bash`, `jq`, `gh` (este último para o futuro de PR automation)
+
+## Estrutura do repositório
+
+```text
 squire/
-├── CLAUDE.md            # Briefing completo para o Claude Code
-├── squire.py            # Loop principal — ponto de entrada CLI
-├── models.py            # Schemas Pydantic v2 (checkpoint, tasks, etc.)
-├── checkpoint.py        # Leitura/escrita atômica de estado + lock
-├── inner_loop.py        # Interface com LLM local via LiteLLM
-├── homologator.py       # Interface com Claude Code para homologação
-├── rate_limiter.py      # Controle de rate limit do Claude Code
-├── config.py            # Configuração centralizada (env vars)
-├── pyproject.toml       # Dependências e configuração do projeto
-├── .gitignore
-├── projects/            # Estado inicial dos projetos
-│   └── orchestrator-dashboard/
-│       ├── project.json
-│       ├── tasks.json   # 11 tasks do projeto-piloto
-│       ├── history.json
-│       └── commits.json
-└── fixtures/            # Dados de exemplo para desenvolvimento do dashboard
-    └── data/            # Espelha a estrutura de /mnt/user/data/squire/
-        ├── alerts.json
-        ├── global-stats.json
-        └── projects/
-            ├── orchestrator-dashboard/
-            └── api-gateway/
+├── README.md              ← este arquivo
+├── README.en.md           ← versão em inglês
+├── CLAUDE.md              ← briefing do projeto para o Claude Code
+├── squire                 ← CLI bash wrapper (frontend)
+├── squire.py              ← loop principal
+├── inner_loop.py          ← uma iteração do agente local
+├── backends.py            ← LiteLLM / OpenCode / Crush
+├── homologator.py         ← review pelo Claude + escalação técnica
+├── rate_limiter.py        ← call-count + USD budget
+├── checkpoint.py          ← escrita atômica + lock
+├── models.py              ← Pydantic v2 schemas
+├── config.py              ← env vars + tabela de preços
+├── viking.py              ← carga de restrições por domínio
+├── progress.py            ← geração de progress.txt
+├── tasks_cli.py           ← subcomandos `squire tasks`
+├── tests/                 ← pytest
+└── docs/                  ← documentação (esta pasta)
+    └── en/                ← mirror em inglês
 ```
 
-## Fluxo
+## Licença e contribuição
 
-1. Lê checkpoint (ou cria novo)
-2. Adquire session lock
-3. Para cada task pendente:
-   a. Inner loop: LLM local implementa + testa (até 10 tentativas)
-   b. A cada 5 falhas → escalação técnica ao Claude Code
-   c. Homologação: Claude Code valida (até 3 tentativas)
-   d. Se aprovado → próxima task
-   e. Se 3 rejeições → alerta + bloqueia + segue pra próxima
-4. Checkpoint persistido a cada transição de estado
+(Em definição. Adicione aqui quando publicar.)
 
-## Ambiente
+## Roadmap
 
-- **VM**: Ai-Debian no Unraid (Zordon)
-- **LLM local**: Qwen 3.5 35B via LiteLLM em `192.168.50.24:4000/v1`
-- **Estado persistente**: `/mnt/user/data/squire/`
-- **Claude Code**: instalado na VM, invocado via `claude --print`
-
-## Projeto-piloto
-
-O primeiro projeto é o **Orchestrator Dashboard**: uma página Next.js que
-mostra o estado dos projetos conduzidos pelo squire. As 11 tasks
-estão definidas em `projects/orchestrator-dashboard/tasks.json`.
-
-Os fixtures em `fixtures/data/` simulam um cenário realista com dois projetos
-em estágios diferentes, para desenvolvimento do dashboard sem depender do
-squire rodando.
+Próximas features estão planejadas em `/home/ai-debian/.claude/plans/`
+(estado do agente, fora do repo). Os destaques: branch + PR automation,
+codebase RAG via Qdrant, structured homologation output, live dashboard
+via JSONL events, gate caching, multi-projeto com worktrees.
