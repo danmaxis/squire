@@ -159,6 +159,52 @@ Ver `projects/orchestrator-dashboard/tasks.json` para o backlog completo.
   inglês quando são técnicos puros
 - Documentação (README, CLAUDE.md): **português**
 
+### Documentação — regra de sincronização
+
+Toda alteração que **adiciona, muda ou remove uma feature** deve atualizar
+a documentação correspondente no MESMO commit/PR. As duas versões
+(PT em `docs/<nome>.md` e EN em `docs/en/<name>.md`) precisam ficar em
+sincronia — não deixe drift acumular.
+
+Mapeamento feature → doc (use este atalho antes de editar):
+
+| Área alterada                              | Doc PT                            | Doc EN                            |
+| ------------------------------------------ | --------------------------------- | --------------------------------- |
+| Subcomando CLI novo/renomeado/removido     | `docs/cli.md`                     | `docs/en/cli.md`                  |
+| Backend (litellm/opencode/crush)           | `docs/backends.md`                | `docs/en/backends.md`             |
+| Task model / status / TDD                  | `docs/tasks.md`                   | `docs/en/tasks.md`                |
+| Homologação / gate / escalação             | `docs/homologacao.md`             | `docs/en/homologation.md`         |
+| Cost / budget / rate limiter               | `docs/custos-e-orcamento.md`      | `docs/en/cost-and-budget.md`      |
+| Env var / config / paths                   | `docs/configuracao.md`            | `docs/en/configuration.md`        |
+| Checkpoint / lock / recovery / git ops     | `docs/estado-e-recuperacao.md`    | `docs/en/state-and-recovery.md`   |
+| Viking pattern (`docs/viking/`)            | `docs/padrao-viking.md`           | `docs/en/viking-pattern.md`       |
+| Arquitetura / fluxo / componentes          | `docs/arquitetura.md`             | `docs/en/architecture.md`         |
+| Failure mode novo / fix conhecido          | `docs/troubleshooting.md`         | `docs/en/troubleshooting.md`      |
+
+Regras:
+
+1. **Mesmo commit** que muda código de uma área deve atualizar o doc PT
+   correspondente. O doc EN pode ir num commit-sync separado mas dentro
+   do MESMO PR.
+2. **Source anchors** (`file.py:line`) nos docs viram stale: ao mover/renomear
+   funções, passe `rg "<arquivo>\.py:" docs/` para encontrar referências e
+   atualize.
+3. **Não documente** features que ainda não foram implementadas. Plano vai
+   em `/home/ai-debian/.claude/plans/`, não em `docs/`.
+4. **Examples nos docs precisam executar.** Se um exemplo deixa de funcionar
+   por causa da sua mudança, ou conserte o exemplo ou conserte a mudança.
+5. Quando em dúvida se uma alteração merece doc: se mudar comportamento
+   observável pelo usuário (CLI, env var, JSON shape, custo, mensagens de
+   log), merece. Refactor interno sem mudança observável, não.
+
+**Checklist mental antes de abrir o PR:**
+
+- [ ] Mudei alguma feature listada na tabela acima?
+- [ ] Atualizei `docs/<area>.md` no mesmo commit?
+- [ ] Espelhei a mudança em `docs/en/<area>.md` (mesmo PR)?
+- [ ] Verifiquei que os exemplos do doc ainda funcionam?
+- [ ] Atualizei source anchors (`file.py:line`) se mexi nas linhas referenciadas?
+
 ### Estilo de código (Python)
 - Python 3.11+
 - Pydantic v2 para schemas
