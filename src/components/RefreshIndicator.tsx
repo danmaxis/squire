@@ -8,6 +8,8 @@ interface RefreshIndicatorProps {
   refreshInterval: number;
   /** Opcional: indica falha detectada externamente */
   isError?: boolean;
+  /** Cadência atual: 'live' = polling rápido (squire ativo), 'idle' = polling normal */
+  mode?: 'live' | 'idle';
 }
 
 /**
@@ -19,6 +21,7 @@ export function RefreshIndicator({
   isRefreshing,
   refreshInterval,
   isError = false,
+  mode,
 }: RefreshIndicatorProps) {
   const formatTime = (date: Date | null) => {
     if (!date) return '--:--:--';
@@ -53,6 +56,17 @@ export function RefreshIndicator({
       <span className="font-mono text-[10px] opacity-75">{formatTime(lastRefresh)}</span>
 
       <span className="text-[10px] opacity-50">({Math.round(refreshInterval / 1000)}s)</span>
+      {mode && (
+        <span
+          className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+            mode === 'live'
+              ? 'bg-green-100 text-green-700'
+              : 'bg-gray-100 text-gray-500'
+          }`}
+        >
+          {mode === 'live' ? 'LIVE' : 'IDLE'}
+        </span>
+      )}
     </div>
   );
 }

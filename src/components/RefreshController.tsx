@@ -3,19 +3,30 @@
 import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import { RefreshIndicator } from './RefreshIndicator';
 
-/**
- * Client component que ativa o polling de auto-refresh e exibe o indicador visual.
- * Deve ser montado uma única vez no layout ou página principal.
- * O router.refresh() disparado aqui faz o Next.js revalidar todos os server components ativos.
- */
-export function RefreshController() {
-  const { lastRefresh, isRefreshing, refreshInterval } = useAutoRefresh();
+const HOT_VIEW_INTERVAL_MS = 5000;
+const IDLE_INTERVAL_MS = parseInt(
+  process.env.NEXT_PUBLIC_REFRESH_INTERVAL || '30000',
+  10
+);
+
+interface RefreshControllerProps {
+  /** True when squire is actively running this page's subject (phase=implementing).
+   * Triggers a faster 5s poll cadence so transitions feel live. */
+  hot?: boolean;
+}
+
+export function RefreshController({ hot = false }: RefreshControllerProps) {
+  const interval = hot ? HOT_VIEW_INTERVAL_MS : IDLE_INTERVAL_MS;
+  const { lastRefresh, isRefreshing, refreshInterval } = useAutoRefresh({
+    interval,
+  });
 
   return (
     <RefreshIndicator
       lastRefresh={lastRefresh}
       isRefreshing={isRefreshing}
       refreshInterval={refreshInterval}
+      mode={hot ? 'live' : 'idle'}
     />
   );
 }

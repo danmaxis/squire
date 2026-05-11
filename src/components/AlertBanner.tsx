@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { Alert } from '@/lib/types';
 
 interface AlertBannerProps {
@@ -9,13 +10,32 @@ interface AlertBannerProps {
 
 const STORAGE_KEY = 'dismissed_alerts';
 
-/** Chave estável por alerta — Alert não tem campo `id` no schema do squire */
 const alertKey = (alert: Alert) =>
   `${alert.project_id}::${alert.task_id ?? ''}::${alert.created_at}`;
 
+async function ackAlert(alert: Alert, dismiss: boolean) {
+  const res = await fetch('/api/alerts/ack', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      project_id: alert.project_id,
+      task_id: alert.task_id,
+      created_at: alert.created_at,
+      dismiss,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'unknown' }));
+    throw new Error(err.error ?? 'request_failed');
+  }
+}
+
 const AlertBanner: React.FC<AlertBannerProps> = ({ alerts }) => {
+  const router = useRouter();
   const [hasMounted, setHasMounted] = useState(false);
   const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(new Set());
+  const [pending, setPending] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -29,7 +49,7 @@ const AlertBanner: React.FC<AlertBannerProps> = ({ alerts }) => {
     setHasMounted(true);
   }, []);
 
-  const dismiss = (key: string) => {
+  const markDismissedLocally = (key: string) => {
     setDismissedKeys((prev) => {
       const next = new Set(prev);
       next.add(key);
@@ -42,7 +62,38 @@ const AlertBanner: React.FC<AlertBannerProps> = ({ alerts }) => {
     });
   };
 
-  // Antes de montar no cliente, retorna null para evitar flash de hidratação SSR
+  const handleAck = async (alert: Alert) => {
+    const key = alertKey(alert);
+    setPending(key);
+    setError(null);
+    try {
+      await ackAlert(alert, false);
+      markDismissedLocally(key);
+      router.refresh();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setPending(null);
+    }
+  };
+
+  const handleDismiss = async (alert: Alert) => {
+    const key = alertKey(alert);
+    setPending(key);
+    setError(null);
+    try {
+      await ackAlert(alert, true);
+      markDismissedLocally(key);
+      router.refresh();
+    } catch (err) {
+      // Fall back to local dismiss so UI doesn't get stuck
+      markDismissedLocally(key);
+      setError((err as Error).message);
+    } finally {
+      setPending(null);
+    }
+  };
+
   if (!hasMounted) return null;
 
   const activeAlerts = alerts.filter(
@@ -85,12 +136,16 @@ const AlertBanner: React.FC<AlertBannerProps> = ({ alerts }) => {
   );
 
   return (
-    <div className="fixed top-0 left-0 right-0 z-50 overflow-y-auto shadow-md">
+    <div
+      className="fixed top-0 left-0 right-0 z-50 overflow-y-auto shadow-md"
+      aria-live="polite"
+    >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
         <div className="space-y-3">
           {activeAlerts.map((alert) => {
             const key = alertKey(alert);
             const style = getBannerStyle(alert.severity);
+            const isBusy = pending === key;
             return (
               <div
                 key={key}
@@ -98,9 +153,7 @@ const AlertBanner: React.FC<AlertBannerProps> = ({ alerts }) => {
                 style={{ ...style, borderColor: style.borderColor }}
                 role="alert"
               >
-                <div className="flex-shrink-0 mt-0.5">
-                  {getIcon()}
-                </div>
+                <div className="flex-shrink-0 mt-0.5">{getIcon()}</div>
                 <div className="ml-3 flex-1 min-w-0">
                   <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-1">
                     <div className="font-semibold text-sm sm:text-base">
@@ -113,30 +166,49 @@ const AlertBanner: React.FC<AlertBannerProps> = ({ alerts }) => {
                   </div>
                   <p className="mt-1 text-sm opacity-95">{alert.message}</p>
                 </div>
-                <button
-                  onClick={() => dismiss(key)}
-                  aria-label="Fechar alerta"
-                  className="ml-3 flex-shrink-0 p-1 rounded opacity-70 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-white"
-                  style={{ color: style.color }}
-                >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    className="h-5 w-5"
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                    aria-hidden="true"
+                <div className="ml-3 flex items-center gap-1">
+                  <button
+                    onClick={() => handleAck(alert)}
+                    disabled={isBusy}
+                    title="Marcar como reconhecido (persistente)"
+                    aria-label="Reconhecer alerta"
+                    className="px-2 py-1 rounded text-xs font-medium bg-white/20 hover:bg-white/30 disabled:opacity-50"
+                    style={{ color: style.color }}
                   >
-                    <path
-                      fillRule="evenodd"
-                      d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
-                </button>
+                    Ack
+                  </button>
+                  <button
+                    onClick={() => handleDismiss(alert)}
+                    disabled={isBusy}
+                    aria-label="Descartar alerta"
+                    title="Remover alerta do estado do squire"
+                    className="p-1 rounded opacity-80 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-white disabled:opacity-50"
+                    style={{ color: style.color }}
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      className="h-5 w-5"
+                      viewBox="0 0 20 20"
+                      fill="currentColor"
+                      aria-hidden="true"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                  </button>
+                </div>
               </div>
             );
           })}
         </div>
+        {error && (
+          <div className="mt-2 text-xs text-white bg-black/60 rounded px-2 py-1 inline-block">
+            Erro: {error}
+          </div>
+        )}
       </div>
     </div>
   );

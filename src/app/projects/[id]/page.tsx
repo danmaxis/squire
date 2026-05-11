@@ -6,6 +6,7 @@ import { Timeline } from '@/components/Timeline';
 import { CommitLog } from '@/components/CommitLog';
 import { CheckpointPanel } from '@/components/CheckpointPanel';
 import { TDDProgressBar } from '@/components/TDDProgressBar';
+import { RefreshController } from '@/components/RefreshController';
 import type { ProjectStatus } from '@/lib/types';
 
 const statusColors: Record<ProjectStatus, string> = {
@@ -64,6 +65,7 @@ export default async function ProjectPage({ params }: { params: { id: string } }
             <p className="text-sm text-gray-500 mt-1">{project.description}</p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            <RefreshController hot={checkpoint?.phase === 'implementing'} />
             {project.coding_backend && (
               <span
                 className="px-2.5 py-1 rounded-full text-xs font-medium font-mono bg-gray-100 text-gray-700"
@@ -101,7 +103,7 @@ export default async function ProjectPage({ params }: { params: { id: string } }
             <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
               Tasks ({tasks.length})
             </h2>
-            <TaskList tasks={tasks} />
+            <TaskList tasks={tasks} projectId={project.id} />
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
             <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">

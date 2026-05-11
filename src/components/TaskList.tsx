@@ -1,10 +1,111 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Task } from '@/lib/types';
 
 interface TaskListProps {
   tasks: Task[];
+  projectId?: string;
+}
+
+type TaskAction = 'retry' | 'approve' | 'skip';
+
+const ACTION_LABELS: Record<TaskAction, { label: string; confirm: string }> = {
+  retry: {
+    label: 'Resetar tentativas',
+    confirm: 'Zerar attempts e rejeições desta task? Squire vai retomá-la do zero.',
+  },
+  approve: {
+    label: 'Aprovar manualmente',
+    confirm: 'Marcar esta task como aprovada/completed sem passar pela homologação?',
+  },
+  skip: {
+    label: 'Pular homologação',
+    confirm: 'Marcar skip_homologation=true? A próxima rodada vai pular o review do Claude.',
+  },
+};
+
+function TaskActionsMenu({
+  task,
+  projectId,
+  onChanged,
+}: {
+  task: Task;
+  projectId: string;
+  onChanged: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [pending, setPending] = useState<TaskAction | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const fire = async (action: TaskAction) => {
+    if (!window.confirm(ACTION_LABELS[action].confirm)) return;
+    setPending(action);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/projects/${projectId}/tasks/${task.id}/action`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action }),
+        }
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message ?? body.error ?? 'request_failed');
+      }
+      setOpen(false);
+      onChanged();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setPending(null);
+    }
+  };
+
+  return (
+    <div className="relative">
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+        className="text-gray-400 hover:text-gray-700 px-2 rounded"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title="Ações da task"
+      >
+        ⋯
+      </button>
+      {open && (
+        <div
+          className="absolute right-0 mt-1 w-56 bg-white border border-gray-200 rounded-md shadow-lg z-20 py-1 text-left"
+          onClick={(e) => e.stopPropagation()}
+          role="menu"
+        >
+          {(Object.keys(ACTION_LABELS) as TaskAction[]).map((action) => (
+            <button
+              key={action}
+              onClick={() => fire(action)}
+              disabled={pending !== null}
+              className="block w-full text-left px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              role="menuitem"
+            >
+              {ACTION_LABELS[action].label}
+              {pending === action && '…'}
+            </button>
+          ))}
+          {error && (
+            <div className="px-3 py-1 text-xs text-red-700 border-t border-gray-100">
+              {error}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 const getEffortLabel = (effort: string) => {
@@ -45,7 +146,8 @@ const getHomologationLabel = (result: string | null) => {
   }
 };
 
-export default function TaskList({ tasks }: TaskListProps) {
+export default function TaskList({ tasks, projectId }: TaskListProps) {
+  const router = useRouter();
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set());
 
   const toggleExpand = (taskId: string) => {
@@ -145,6 +247,13 @@ export default function TaskList({ tasks }: TaskListProps) {
               <button className="text-gray-400 hover:text-gray-600 ml-2">
                 {expandedTasks.has(task.id) ? '▲' : '▼'}
               </button>
+              {projectId && (
+                <TaskActionsMenu
+                  task={task}
+                  projectId={projectId}
+                  onChanged={() => router.refresh()}
+                />
+              )}
             </div>
           </div>
 

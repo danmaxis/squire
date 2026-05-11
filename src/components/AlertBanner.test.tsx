@@ -1,7 +1,16 @@
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import AlertBanner from './AlertBanner';
 import type { Alert } from '@/lib/types';
+
+// The dismiss button now hits POST /api/alerts/ack before falling back to
+// localStorage; stub fetch so each test resolves deterministically.
+beforeEach(() => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response(JSON.stringify({ updated: 1 }), { status: 200 }))
+  );
+});
 
 const makeAlert = (overrides?: Partial<Alert>): Alert => ({
   project_id: 'projeto-x',
@@ -65,19 +74,25 @@ describe('AlertBanner', () => {
     await act(async () => {});
 
     expect(screen.getByText('Falhou em 5 homologações')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /fechar alerta/i }));
+    fireEvent.click(screen.getByRole('button', { name: /descartar alerta/i }));
 
-    expect(screen.queryByText('Falhou em 5 homologações')).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByText('Falhou em 5 homologações')).not.toBeInTheDocument()
+    );
   });
 
   it('dismiss persiste no localStorage com chave composta', async () => {
     render(<AlertBanner alerts={[makeAlert()]} />);
     await act(async () => {});
 
-    fireEvent.click(screen.getByRole('button', { name: /fechar alerta/i }));
+    fireEvent.click(screen.getByRole('button', { name: /descartar alerta/i }));
 
-    const stored = JSON.parse(localStorage.getItem('dismissed_alerts') ?? '[]') as string[];
-    expect(stored).toContain('projeto-x::task-001::2026-03-29T10:00:00Z');
+    await waitFor(() => {
+      const stored = JSON.parse(
+        localStorage.getItem('dismissed_alerts') ?? '[]'
+      ) as string[];
+      expect(stored).toContain('projeto-x::task-001::2026-03-29T10:00:00Z');
+    });
   });
 
   it('alerta já dispensado (localStorage pré-populado) não aparece', async () => {
@@ -103,10 +118,12 @@ describe('AlertBanner', () => {
     expect(screen.getByText('Mensagem 1')).toBeInTheDocument();
     expect(screen.getByText('Mensagem 2')).toBeInTheDocument();
 
-    const buttons = screen.getAllByRole('button', { name: /fechar alerta/i });
+    const buttons = screen.getAllByRole('button', { name: /descartar alerta/i });
     fireEvent.click(buttons[0]);
 
-    expect(screen.queryByText('Mensagem 1')).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByText('Mensagem 1')).not.toBeInTheDocument()
+    );
     expect(screen.getByText('Mensagem 2')).toBeInTheDocument();
   });
 
