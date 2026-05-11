@@ -128,6 +128,10 @@ class Task(BaseModel):
     tdd: bool = True
     # Quem escreve os testes na fase RED
     test_author: TestAuthor = TestAuthor.claude
+    # Limite de custo (USD) para esta task — None ou 0 = sem limite por-task
+    max_usd: Optional[float] = None
+    # Custo acumulado nesta task; reset junto com attempts no `squire reset`
+    cost_usd: float = 0.0
 
 
 class TaskList(BaseModel):
@@ -192,6 +196,10 @@ class RateLimitState(BaseModel):
     window_started_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     window_duration_minutes: int = 30
     max_calls_per_window: int = 10
+    # Budget USD diário (0 = sem limite). Persistido para sobreviver a --resume.
+    max_daily_usd: float = 0.0
+    daily_cost_usd: float = 0.0
+    daily_cost_date: str = ""  # YYYY-MM-DD; reset quando o dia vira
 
 
 class RecoveryHints(BaseModel):
@@ -245,6 +253,26 @@ class GlobalStats(BaseModel):
     daily_local_llm_calls: int = 0
     date: str = ""  # YYYY-MM-DD
     cost_estimate_usd: float = 0.0
+    daily_tokens: int = 0
+    # Custo agregado por modelo (ex: {"claude-opus-4-7": 0.42, "journal-synth": 0.0})
+    cost_by_model: dict[str, float] = {}
+    # Calls cuja usage não foi reportada pelo backend — soma serve de "actual cost likely higher"
+    daily_calls_unknown_cost: int = 0
     projects_touched_today: list[str] = []
     tasks_completed_today: int = 0
     approval_first_try_rate: float = 0.0  # % aprovadas na 1ª homologação
+
+
+class TokenUsage(BaseModel):
+    """Uso de tokens reportado por um backend após uma chamada.
+
+    `tokens_unknown=True` indica que o backend não expôs uso (ex: OpenCode/Crush CLI)
+    — nesse caso o custo é registrado como 0 mas o flag permite que o dashboard
+    sinalize "custo real provavelmente maior" em vez de assumir gratuidade.
+    """
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    cached_tokens: int = 0  # cache reads (Claude prompt caching)
+    cost_usd: float = 0.0
+    model: str = ""
+    tokens_unknown: bool = False

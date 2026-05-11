@@ -47,6 +47,7 @@ from models import (
     ProjectStatus,
     TaskStatus,
     TestAuthor,
+    TokenUsage,
 )
 
 
@@ -89,9 +90,49 @@ class Squire:
         # Contadores desta sessão apenas (não persistidos no global-stats)
         self.session_local_calls: int = 0
         self.session_cc_calls: int = 0
+        self.session_cost_usd: float = 0.0
 
         # Heartbeat thread
         self._heartbeat_stop = threading.Event()
+
+    # ── Cost accounting helpers ────────────────────────────────────
+
+    def _account_call(self, usage: TokenUsage | None, task=None, cc_call: bool = True) -> float:
+        """
+        Contabiliza tokens/custo de uma chamada que já aconteceu.
+
+        Atualiza GlobalStats (custo total, custo por modelo, tokens) e — se task
+        for fornecida — Task.cost_usd. Retorna o custo registrado para uso em logs
+        e para passar a `rate_limiter.record_call(cost_usd=…)` no caller.
+
+        cc_call=True identifica chamadas ao Claude Code (contam para
+        daily_calls_unknown_cost quando usage.tokens_unknown).
+        """
+        if usage is None:
+            if cc_call:
+                self.stats.daily_calls_unknown_cost += 1
+            return 0.0
+        cost = max(0.0, float(usage.cost_usd or 0.0))
+        tokens = int(usage.prompt_tokens or 0) + int(usage.completion_tokens or 0)
+        self.stats.cost_estimate_usd += cost
+        self.stats.daily_tokens += tokens
+        self.session_cost_usd += cost
+        if usage.tokens_unknown and cc_call:
+            self.stats.daily_calls_unknown_cost += 1
+        if usage.model:
+            self.stats.cost_by_model[usage.model] = (
+                self.stats.cost_by_model.get(usage.model, 0.0) + cost
+            )
+        if task is not None:
+            task.cost_usd = float(task.cost_usd or 0.0) + cost
+        return cost
+
+    def _task_budget_exceeded(self, task) -> bool:
+        """True se o custo acumulado da task ultrapassou seu cap (Task.max_usd ou global)."""
+        cap = task.max_usd if task.max_usd and task.max_usd > 0 else config.PER_TASK_USD_CAP
+        if cap <= 0:
+            return False
+        return float(task.cost_usd or 0.0) >= cap
 
     # ── Heartbeat ──────────────────────────────────────────────────
 
@@ -284,18 +325,19 @@ class Squire:
         Usado quando loop detectado ou sem progresso por N ciclos.
         Retorna as instruções para o próximo inner loop.
         """
-        if not self.rate_limiter.can_call():
-            log("Rate limit ativo — não é possível escalar agora", "warn")
+        if not self.rate_limiter.can_afford(config.ESTIMATED_CALL_COST_USD):
+            log("Rate limit ou budget ativo — não é possível escalar agora", "warn")
             return context_feedback
 
         log("Loop detectado — escalação forçada ao Claude Code", "warn")
-        self.rate_limiter.record_call()
+        extra, usage = self.escalation.unblock(task, self.cp.llm_context)
+        cost = self._account_call(usage, task=task, cc_call=True)
+        self.rate_limiter.record_call(cost_usd=cost)
         self.stats.daily_claude_code_calls += 1
         self.session_cc_calls += 1
-        extra = self.escalation.unblock(task, self.cp.llm_context)
         task.claude_code_assisted = True
         if extra:
-            log("Instruções de desbloqueio recebidas do Claude Code", "ok")
+            log(f"Instruções de desbloqueio recebidas do Claude Code (${cost:.3f})", "ok")
         return extra or context_feedback
 
     # ── Fase RED (TDD) ─────────────────────────────────────────────
@@ -328,23 +370,26 @@ class Squire:
         )
 
         if task.test_author == TestAuthor.claude:
-            if not self.rate_limiter.can_call():
-                log("Rate limit ativo — fase RED (Claude) adiada", "warn")
+            if not self.rate_limiter.can_afford(config.ESTIMATED_CALL_COST_USD):
+                log("Rate limit ou budget ativo — fase RED (Claude) adiada", "warn")
                 return
-            self.rate_limiter.record_call()
-            self.stats.daily_claude_code_calls += 1
-            self.session_cc_calls += 1
             try:
                 result = subprocess.run(
-                    [self.homologator.claude_bin, "--print"],
+                    [self.homologator.claude_bin, "--print", "--output-format", "json"],
                     input=red_prompt,
                     cwd=str(self.inner_loop.project_path),
                     capture_output=True, text=True, timeout=180,
                 )
-                if result.returncode == 0 and result.stdout.strip():
+                from homologator import _unwrap_claude_json
+                text, usage = _unwrap_claude_json(result.stdout)
+                cost = self._account_call(usage, task=task, cc_call=True)
+                self.rate_limiter.record_call(cost_usd=cost)
+                self.stats.daily_claude_code_calls += 1
+                self.session_cc_calls += 1
+                if result.returncode == 0 and text.strip():
                     from backends import parse_and_apply_files
-                    files = parse_and_apply_files(result.stdout, self.inner_loop.project_path)
-                    log(f"Fase RED (Claude): {len(files)} arquivo(s) criado(s)", "ok")
+                    files = parse_and_apply_files(text, self.inner_loop.project_path)
+                    log(f"Fase RED (Claude): {len(files)} arquivo(s) criado(s) (${cost:.3f})", "ok")
             except (subprocess.TimeoutExpired, FileNotFoundError) as e:
                 log(f"Fase RED (Claude) falhou: {e}", "warn")
         else:
@@ -358,6 +403,7 @@ class Squire:
             )
             self.stats.daily_local_llm_calls += 1
             self.session_local_calls += 1
+            self._account_call(result.usage, task=task, cc_call=False)
             if result.files_touched:
                 log(f"Fase RED (local): {len(result.files_touched)} arquivo(s) criado(s)", "ok")
             elif result.error:
@@ -400,11 +446,27 @@ class Squire:
             if result.context_summary:
                 self.cp.llm_context = result.context_summary
 
-            # Atualizar stats
+            # Atualizar stats (inclui custo do backend local, geralmente 0)
             self.stats.daily_local_llm_calls += 1
             self.session_local_calls += 1
+            self._account_call(result.usage, task=task, cc_call=False)
             if self.project_id not in self.stats.projects_touched_today:
                 self.stats.projects_touched_today.append(self.project_id)
+
+            # Per-task budget cap (Task.max_usd ou config.PER_TASK_USD_CAP)
+            if self._task_budget_exceeded(task):
+                cap = task.max_usd or config.PER_TASK_USD_CAP
+                log(
+                    f"Task budget esgotado (${task.cost_usd:.2f} >= ${cap:.2f}) — pausando task",
+                    "warn",
+                )
+                ckpt.add_alert(
+                    self.project_id, "task_budget_exceeded",
+                    f"Task '{task.title}' atingiu cap de ${cap:.2f}",
+                    task_id=task.id, severity=AlertSeverity.warning,
+                )
+                self._save_state()
+                return False
 
             # Checkpoint após cada iteração
             self._save_state()
@@ -462,16 +524,17 @@ class Squire:
                 log("Pedindo ajuda técnica ao Claude Code...", "warn")
                 self.rate_limiter.wait_if_needed()
 
-                if self.rate_limiter.can_call():
-                    self.rate_limiter.record_call()
-                    self.stats.daily_claude_code_calls += 1
-                    self.session_cc_calls += 1
-                    extra_instructions = self.escalation.unblock(
+                if self.rate_limiter.can_afford(config.ESTIMATED_CALL_COST_USD):
+                    extra_instructions, usage = self.escalation.unblock(
                         task, self.cp.llm_context,
                     )
+                    cost = self._account_call(usage, task=task, cc_call=True)
+                    self.rate_limiter.record_call(cost_usd=cost)
+                    self.stats.daily_claude_code_calls += 1
+                    self.session_cc_calls += 1
                     task.claude_code_assisted = True
                     if extra_instructions:
-                        log("Recebeu orientação do Claude Code", "ok")
+                        log(f"Recebeu orientação do Claude Code (${cost:.3f})", "ok")
 
         # Esgotou tentativas
         log(f"Inner loop esgotou {task.max_attempts} tentativas", "error")
@@ -739,6 +802,16 @@ class Squire:
                 log(f"Snapshot: {len(test_hashes)} arquivo(s) de teste protegido(s)", "ok")
 
         while task.homologation_attempt < task.max_homologation_attempts:
+            # Per-task budget cap — aborta a task antes de gastar mais
+            if self._task_budget_exceeded(task):
+                cap = task.max_usd or config.PER_TASK_USD_CAP
+                log(
+                    f"Task budget esgotado (${task.cost_usd:.2f} >= ${cap:.2f}) — abortando rodadas",
+                    "warn",
+                )
+                task.homologation_result = "rejected"
+                return False
+
             rodada = task.homologation_attempt + 1
             total  = task.max_homologation_attempts
 
@@ -800,9 +873,10 @@ class Squire:
                 else:
                     gate_failures = 0  # reset se passou no gate
 
-            self.rate_limiter.record_call()
-            self.stats.daily_claude_code_calls += 1
-            self.session_cc_calls += 1
+            if not self.rate_limiter.can_afford(config.ESTIMATED_CALL_COST_USD):
+                log("Budget/rate limit ativo — homologação adiada", "warn")
+                self._wait_productively(task, last_feedback, test_hashes=test_hashes)
+                continue
 
             result = self.homologator.review(
                 task=task,
@@ -810,6 +884,10 @@ class Squire:
                 attempt=task.homologation_attempt,
                 test_hashes=test_hashes,
             )
+            cost = self._account_call(result.usage, task=task, cc_call=True)
+            self.rate_limiter.record_call(cost_usd=cost)
+            self.stats.daily_claude_code_calls += 1
+            self.session_cc_calls += 1
 
             self._save_state()
 
@@ -878,16 +956,17 @@ class Squire:
             )
             if is_early_escalation:
                 log("effort:low + 2 rejeições + loop → Claude Code implementa diretamente", "warn")
-                if self.rate_limiter.can_call():
-                    self.rate_limiter.record_call()
-                    self.stats.daily_claude_code_calls += 1
-                    self.session_cc_calls += 1
-                    files_written = self.escalation.implement_directly(
+                if self.rate_limiter.can_afford(config.ESTIMATED_CALL_COST_USD):
+                    files_written, usage = self.escalation.implement_directly(
                         task, self.cp.llm_context,
                         rejection_context="\n".join(task.rejection_summaries[-3:]),
                     )
+                    cost = self._account_call(usage, task=task, cc_call=True)
+                    self.rate_limiter.record_call(cost_usd=cost)
+                    self.stats.daily_claude_code_calls += 1
+                    self.session_cc_calls += 1
                     if files_written:
-                        log(f"Claude Code escreveu {len(files_written)} arquivo(s)", "ok")
+                        log(f"Claude Code escreveu {len(files_written)} arquivo(s) (${cost:.3f})", "ok")
                         task.claude_code_assisted = True
                         self.cp.llm_context.files_touched = files_written
                         last_feedback = ""
@@ -899,17 +978,18 @@ class Squire:
                     "Penúltima rodada + loop persistente → "
                     "Claude Code implementa diretamente", "warn"
                 )
-                if self.rate_limiter.can_call():
-                    self.rate_limiter.record_call()
-                    self.stats.daily_claude_code_calls += 1
-                    self.session_cc_calls += 1
-                    files_written = self.escalation.implement_directly(
+                if self.rate_limiter.can_afford(config.ESTIMATED_CALL_COST_USD):
+                    files_written, usage = self.escalation.implement_directly(
                         task, self.cp.llm_context,
                         rejection_context="\n".join(task.rejection_summaries[-5:]),
                     )
+                    cost = self._account_call(usage, task=task, cc_call=True)
+                    self.rate_limiter.record_call(cost_usd=cost)
+                    self.stats.daily_claude_code_calls += 1
+                    self.session_cc_calls += 1
                     if files_written:
                         log(
-                            f"Claude Code escreveu {len(files_written)} arquivo(s) — "
+                            f"Claude Code escreveu {len(files_written)} arquivo(s) (${cost:.3f}) — "
                             "avançando para última homologação", "ok"
                         )
                         task.claude_code_assisted = True
@@ -980,7 +1060,7 @@ class Squire:
                         EventType.task_completed, task.id,
                         summary=f"Aprovada na homologação #{task.homologation_attempt}",
                     )
-                    log(f"Task concluída: [{task.id}] {task.title}", "ok")
+                    log(f"Task concluída: [{task.id}] {task.title} (${task.cost_usd:.3f})", "ok")
                     # Atualizar memória de longo prazo (padrão Ralph Loop)
                     try:
                         import progress as _progress
@@ -1079,6 +1159,18 @@ class Squire:
         log(f"  Esta sessão  →  LLM local: {self.session_local_calls}  |  Claude Code: {self.session_cc_calls}  |  proporção: {session_ratio:.1f}:1")
         log(f"  Hoje (total) →  LLM local: {self.stats.daily_local_llm_calls}  |  Claude Code: {self.stats.daily_claude_code_calls}  |  proporção: {daily_ratio:.1f}:1")
         log(f"  Meta: 30:1")
+        # Cost summary — só interessa se algo foi gasto
+        if self.session_cost_usd > 0 or self.stats.cost_estimate_usd > 0:
+            cap = self.rate_limiter.state.max_daily_usd
+            cap_str = f" / ${cap:.2f}" if cap > 0 else ""
+            log(f"  Custo sessão →  ${self.session_cost_usd:.3f}  |  Hoje →  ${self.stats.cost_estimate_usd:.3f}{cap_str}  |  tokens: {self.stats.daily_tokens:,}")
+            if self.stats.cost_by_model:
+                breakdown = "  ".join(
+                    f"{m}: ${c:.3f}" for m, c in sorted(self.stats.cost_by_model.items())
+                )
+                log(f"               por modelo → {breakdown}")
+            if self.stats.daily_calls_unknown_cost:
+                log(f"               ⚠ {self.stats.daily_calls_unknown_cost} chamada(s) sem usage reportado — custo real pode ser maior")
         log(f"{'─'*50}")
 
 

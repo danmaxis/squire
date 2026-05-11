@@ -21,7 +21,7 @@ from pathlib import Path
 
 import config
 from backends import CodingBackend, create_backend
-from models import Effort, LLMContextSummary, Task
+from models import Effort, LLMContextSummary, Task, TokenUsage
 
 
 @dataclass
@@ -37,6 +37,7 @@ class InnerLoopResult:
     error: str | None = None        # erro fatal (não de teste)
     llm_response: str = ""          # output bruto do backend (pra debug)
     context_summary: LLMContextSummary | None = None
+    usage: TokenUsage | None = None  # tokens + custo da chamada ao backend
 
 
 class InnerLoop:
@@ -151,7 +152,7 @@ class InnerLoop:
         )
 
         if backend_result.error:
-            return InnerLoopResult(error=backend_result.error)
+            return InnerLoopResult(error=backend_result.error, usage=backend_result.usage)
 
         if backend_result.agent_used:
             self._vlog("◆", f"agente: {backend_result.agent_used}")
@@ -171,6 +172,7 @@ class InnerLoop:
                         f"Alterações revertidas via git. "
                         f"PROIBIDO modificar test_*.py — implemente apenas o código de produção."
                     ),
+                    usage=backend_result.usage,
                 )
 
         test_result = self._run_tests()
@@ -194,6 +196,7 @@ class InnerLoop:
             files_touched=backend_result.files_touched,
             llm_response=backend_result.raw_output[:1000],
             context_summary=context,
+            usage=backend_result.usage,
         )
 
     def _build_instruction(

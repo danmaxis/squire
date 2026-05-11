@@ -3,6 +3,7 @@ Configuração centralizada do orquestrador.
 Todos os valores podem ser sobrescritos via variáveis de ambiente.
 """
 
+import json
 import os
 from pathlib import Path
 
@@ -17,6 +18,20 @@ ALERTS_FILE = STATE_ROOT / "alerts.json"
 STATS_FILE = STATE_ROOT / "global-stats.json"
 SESSION_LOCK_FILE = STATE_ROOT / "session.lock"
 RATE_FILE = STATE_ROOT / "rate.json"
+BUDGET_FILE = STATE_ROOT / "budget.json"
+
+
+def _load_budget_file() -> dict:
+    """Lê limites persistidos por `squire budget set`. Env vars têm prioridade."""
+    if not BUDGET_FILE.exists():
+        return {}
+    try:
+        return json.loads(BUDGET_FILE.read_text())
+    except Exception:
+        return {}
+
+
+_budget = _load_budget_file()
 
 
 # ── LLM Local (Qwen via LiteLLM) ──────────────────────────────────
@@ -68,6 +83,63 @@ LOOP_DETECT_THRESHOLD = int(os.getenv("SQUIRE_LOOP_DETECT", "3"))
 
 # Quantos ciclos consecutivos sem nenhum arquivo modificado disparam escalação
 NO_PROGRESS_THRESHOLD = int(os.getenv("SQUIRE_NO_PROGRESS", "3"))
+
+
+# ── Budget / Cost ─────────────────────────────────────────────────
+
+# Orçamento USD diário para chamadas ao Claude Code (0 = sem limite).
+# Aplicado pelo RateLimiter.can_afford(): com budget esgotado, squire pausa.
+# Precedência: env var > budget.json > 0 (sem limite)
+DAILY_USD_BUDGET = float(os.getenv(
+    "SQUIRE_DAILY_USD_BUDGET", str(_budget.get("daily_usd", 0))
+))
+
+# Limite default de USD por task (0 = sem limite). Cada Task pode sobrescrever
+# via Task.max_usd. Excedido → task pausa e gera alerta.
+PER_TASK_USD_CAP = float(os.getenv(
+    "SQUIRE_PER_TASK_USD_CAP", str(_budget.get("per_task_usd", 0))
+))
+
+# Custo estimado de uma chamada quando ainda não sabemos o custo real
+# (usado por can_afford() ANTES da chamada para reservar headroom no budget).
+ESTIMATED_CALL_COST_USD = float(os.getenv("SQUIRE_ESTIMATED_CALL_USD", "0.05"))
+
+# Tabela de preços por modelo: (USD/1M input tokens, USD/1M output tokens).
+# Valores aproximados da política pública da Anthropic em 2026-Q1.
+# Modelos locais (LiteLLM/Qwen) custam zero. Para sobrescrever um preço,
+# edite o dict abaixo — não há env var por modelo (UX ruim).
+MODEL_PRICING_PER_1M: dict[str, tuple[float, float]] = {
+    # Família Claude 4
+    "claude-opus-4-7":     (15.0, 75.0),
+    "claude-opus-4-6":     (15.0, 75.0),
+    "claude-sonnet-4-6":   (3.0,  15.0),
+    "claude-sonnet-4-5":   (3.0,  15.0),
+    "claude-haiku-4-5":    (1.0,  5.0),
+    # Local
+    "journal-synth":       (0.0,  0.0),
+}
+
+
+def price_for_model(model: str) -> tuple[float, float]:
+    """Retorna (USD/1M input, USD/1M output) para o modelo.
+
+    Tenta match exato; depois prefix match (cobre IDs com sufixo como
+    'claude-opus-4-7[1m]'). Retorna (0, 0) se desconhecido.
+    """
+    if not model:
+        return (0.0, 0.0)
+    if model in MODEL_PRICING_PER_1M:
+        return MODEL_PRICING_PER_1M[model]
+    for known, price in MODEL_PRICING_PER_1M.items():
+        if model.startswith(known):
+            return price
+    return (0.0, 0.0)
+
+
+def compute_cost_usd(prompt_tokens: int, completion_tokens: int, model: str) -> float:
+    """Custo de uma chamada baseado em tokens reportados + tabela de preços."""
+    in_price, out_price = price_for_model(model)
+    return (prompt_tokens * in_price + completion_tokens * out_price) / 1_000_000
 
 
 # ── Session ────────────────────────────────────────────────────────

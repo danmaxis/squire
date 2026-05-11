@@ -21,10 +21,12 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Optional
 
 import httpx
 
 import config
+from models import TokenUsage
 
 # System prompt padrão para o LiteLLM — contexto de CI automatizado
 _DEFAULT_SYSTEM_PROMPT = (
@@ -103,6 +105,9 @@ class BackendResult:
     error: str | None = None      # erro fatal (não de teste)
     reasoning: str = ""           # chain-of-thought do modelo (se disponível)
     agent_used: str = ""          # agente opencode selecionado (vazio para outros backends)
+    # Uso de tokens / custo. None ou tokens_unknown=True quando o backend
+    # não expõe contadores (CLIs como opencode/crush).
+    usage: Optional[TokenUsage] = None
 
 
 class CodingBackend(ABC):
@@ -169,10 +174,31 @@ class LiteLLMBackend(CodingBackend):
                 return BackendResult(error=f"LLM call failed: {e}")
 
         files_touched = self._apply_changes(llm_text, project_path)
+        usage = self._extract_usage(data)
         return BackendResult(
             files_touched=files_touched,
             raw_output=llm_text,
             reasoning=reasoning,
+            usage=usage,
+        )
+
+    def _extract_usage(self, data: dict) -> TokenUsage:
+        """Lê `usage` da resposta OpenAI-compatible e converte para TokenUsage.
+
+        Se a resposta não tiver `usage` (alguns gateways locais omitem),
+        sinaliza tokens_unknown=True para que o dashboard saiba que o
+        custo registrado é otimista.
+        """
+        usage_data = data.get("usage") or {}
+        pt = int(usage_data.get("prompt_tokens", 0) or 0)
+        ct = int(usage_data.get("completion_tokens", 0) or 0)
+        if pt == 0 and ct == 0:
+            return TokenUsage(model=self.model, tokens_unknown=True)
+        return TokenUsage(
+            prompt_tokens=pt,
+            completion_tokens=ct,
+            model=self.model,
+            cost_usd=config.compute_cost_usd(pt, ct, self.model),
         )
 
     def _call_api_with_retry(self, instruction: str, timeout: int) -> dict:
@@ -416,7 +442,12 @@ class OpenCodeBackend(CodingBackend):
                 return BackendResult(error=f"opencode timed out ({timeout}s)")
 
         files_touched = self._git_diff_files(project_path)
-        return BackendResult(files_touched=files_touched, raw_output=raw_output, agent_used=agent)
+        return BackendResult(
+            files_touched=files_touched,
+            raw_output=raw_output,
+            agent_used=agent,
+            usage=TokenUsage(tokens_unknown=True),
+        )
 
     def _git_diff_files(self, project_path: Path) -> list[str]:
         """Mesmo mecanismo do AiderBackend (com filtro de arquivos de código)."""
@@ -491,7 +522,12 @@ class CrushBackend(CodingBackend):
                 return BackendResult(error=f"crush timed out ({timeout}s)")
 
         files_touched = self._git_diff_files(project_path)
-        return BackendResult(files_touched=files_touched, raw_output=raw_output, agent_used="crush")
+        return BackendResult(
+            files_touched=files_touched,
+            raw_output=raw_output,
+            agent_used="crush",
+            usage=TokenUsage(tokens_unknown=True),
+        )
 
     def _git_diff_files(self, project_path: Path) -> list[str]:
         """Mesmo mecanismo do OpenCodeBackend."""

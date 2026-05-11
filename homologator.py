@@ -15,10 +15,44 @@ import json
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 
 import config
 import viking as _viking
-from models import LLMContextSummary, Task
+from models import LLMContextSummary, Task, TokenUsage
+
+
+def _extract_usage_from_claude_json(data: dict) -> Optional[TokenUsage]:
+    """Lê custo + tokens da resposta `claude --print --output-format json`.
+
+    O wrapper Claude Code expõe os campos no nível raiz do JSON:
+    `total_cost_usd`, `model`, e `usage.{input_tokens, output_tokens, cache_read_input_tokens}`.
+    Retorna None quando nenhum desses campos está presente — caller decide se
+    isso é um erro ou apenas um output não-JSON.
+    """
+    if not isinstance(data, dict):
+        return None
+    has_cost = "total_cost_usd" in data
+    has_usage = isinstance(data.get("usage"), dict)
+    if not (has_cost or has_usage):
+        return None
+    usage = data.get("usage") or {}
+    pt = int(usage.get("input_tokens", 0) or 0)
+    ct = int(usage.get("output_tokens", 0) or 0)
+    cached = int(usage.get("cache_read_input_tokens", 0) or 0)
+    model = data.get("model", "") or ""
+    cost = float(data.get("total_cost_usd", 0.0) or 0.0)
+    # Fallback: se Claude não reportou custo mas reportou tokens, computa da tabela
+    if cost == 0.0 and (pt or ct) and model:
+        cost = config.compute_cost_usd(pt, ct, model)
+    return TokenUsage(
+        prompt_tokens=pt,
+        completion_tokens=ct,
+        cached_tokens=cached,
+        cost_usd=cost,
+        model=model,
+        tokens_unknown=(pt == 0 and ct == 0 and cost == 0.0),
+    )
 
 
 @dataclass
@@ -30,6 +64,7 @@ class HomologationResult:
     fix_suggestion: str = ""     # passos concretos para o agente local corrigir (rejeição)
     suggestions: list[str] = None  # melhorias sugeridas (mesmo se aprovado)
     error: str | None = None     # erro de execução (não de review)
+    usage: Optional[TokenUsage] = None  # tokens + custo reportados pelo Claude Code
 
     def __post_init__(self):
         if self.suggestions is None:
@@ -273,9 +308,15 @@ Responda APENAS com JSON válido, sem markdown:
 
     def _parse_response(self, stdout: str) -> HomologationResult:
         """Parseia a resposta do Claude Code."""
+        usage: Optional[TokenUsage] = None
         try:
             # Claude Code com --output-format json retorna estruturado
             data = json.loads(stdout)
+
+            # Extrai custo + tokens do envelope ANTES de descer no conteúdo —
+            # mesmo se o parsing do review interno falhar, queremos contabilizar
+            # o custo da chamada que foi efetivamente feita.
+            usage = _extract_usage_from_claude_json(data)
 
             # Se o Claude Code retornou no formato de mensagem
             if "result" in data:
@@ -298,6 +339,7 @@ Responda APENAS com JSON válido, sem markdown:
             else:
                 return HomologationResult(
                     error=f"Unexpected response format: {type(content)}",
+                    usage=usage,
                 )
 
             return HomologationResult(
@@ -306,15 +348,18 @@ Responda APENAS com JSON válido, sem markdown:
                 feedback=review.get("feedback", ""),
                 fix_suggestion=review.get("fix_suggestion", ""),
                 suggestions=review.get("suggestions", []),
+                usage=usage,
             )
 
         except (json.JSONDecodeError, KeyError, TypeError) as e:
-            # Se não conseguiu parsear, trata como aprovação condicional
-            # com o texto bruto como feedback
+            # Se não conseguiu parsear, trata como rejeição
+            # com o texto bruto como feedback. Ainda assim retorna o usage
+            # se já foi extraído (a chamada custou mesmo sem output válido).
             return HomologationResult(
                 approved=False,
                 feedback=f"Não foi possível parsear a resposta: {stdout[:500]}",
                 error=f"Parse error: {e}",
+                usage=usage,
             )
 
 
@@ -351,12 +396,12 @@ class TechnicalEscalation:
         task: Task,
         context: LLMContextSummary,
         rejection_context: str = "",
-    ) -> list[str]:
+    ) -> tuple[list[str], Optional[TokenUsage]]:
         """
         Modo de emergência: quando o LLM local não consegue resolver após N rodadas,
         pede ao Claude Code para implementar diretamente.
 
-        Retorna lista de arquivos escritos. Se falhar, retorna [].
+        Retorna (arquivos_escritos, usage). Se falhar, retorna ([], None).
         """
         from backends import parse_and_apply_files
 
@@ -386,7 +431,7 @@ Cada arquivo deve ser completo e funcional. Não use TODOs nem esqueletos."""
         self._vlog("→", prompt)
         try:
             result = subprocess.run(
-                [self.claude_bin, "--print"],
+                [self.claude_bin, "--print", "--output-format", "json"],
                 input=prompt,
                 cwd=str(self.project_path),
                 capture_output=True,
@@ -394,21 +439,23 @@ Cada arquivo deve ser completo e funcional. Não use TODOs nem esqueletos."""
                 timeout=300,  # 5 min — pode precisar escrever vários arquivos
             )
             if result.returncode != 0 or not result.stdout.strip():
-                return []
+                return [], None
             self._vlog("←", result.stdout)
-            files = parse_and_apply_files(result.stdout, self.project_path)
-            return files
+            text, usage = _unwrap_claude_json(result.stdout)
+            files = parse_and_apply_files(text, self.project_path)
+            return files, usage
         except (subprocess.TimeoutExpired, FileNotFoundError):
-            return []
+            return [], None
 
     def unblock(
         self,
         task: Task,
         context: LLMContextSummary,
-    ) -> str:
+    ) -> tuple[str, Optional[TokenUsage]]:
         """
         Pede ao Claude Code para analisar o erro e sugerir um caminho.
-        Retorna instruções que serão passadas de volta ao LLM local.
+        Retorna (instruções, usage) — instruções vão de volta ao LLM local
+        como extra_instructions.
         """
         prompt = f"""O LLM local está empacado nesta task após múltiplas tentativas.
 
@@ -426,7 +473,7 @@ você escrever como contexto adicional na próxima tentativa."""
         self._vlog("→", prompt)
         try:
             result = subprocess.run(
-                [self.claude_bin, "--print"],
+                [self.claude_bin, "--print", "--output-format", "json"],
                 input=prompt,
                 cwd=str(self.project_path),
                 capture_output=True,
@@ -435,7 +482,24 @@ você escrever como contexto adicional na próxima tentativa."""
             )
             if result.returncode == 0:
                 self._vlog("←", result.stdout)
-                return result.stdout.strip()
-            return ""
+                text, usage = _unwrap_claude_json(result.stdout)
+                return text.strip(), usage
+            return "", None
         except (subprocess.TimeoutExpired, FileNotFoundError):
-            return ""
+            return "", None
+
+
+def _unwrap_claude_json(stdout: str) -> tuple[str, Optional[TokenUsage]]:
+    """Extrai (texto, usage) de stdout JSON do Claude Code.
+
+    Quando o stdout não é JSON válido (ex: Claude rodando sem --output-format json),
+    retorna (stdout, None) para preservar compatibilidade com callers antigos.
+    """
+    try:
+        data = json.loads(stdout)
+    except (json.JSONDecodeError, TypeError):
+        return stdout, None
+    text = data.get("result") or data.get("content") or ""
+    if not isinstance(text, str):
+        text = stdout
+    return text, _extract_usage_from_claude_json(data)

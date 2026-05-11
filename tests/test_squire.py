@@ -56,13 +56,23 @@ def make_squire(can_call_side_effect=None):
     ):
         orch = Squire("test-proj", dry_run=False, verbose=False)
 
-    # Substituir rate_limiter por mock controlável
+    # Substituir rate_limiter por mock controlável.
+    # can_afford() (novo, cost-aware) e can_call() (legado) compartilham o side_effect
+    # para que testes existentes continuem controlando "pode chamar agora?" sem alteração.
     orch.rate_limiter = MagicMock()
     if can_call_side_effect is not None:
-        orch.rate_limiter.can_call.side_effect = can_call_side_effect
+        orch.rate_limiter.can_call.side_effect = list(can_call_side_effect)
+        orch.rate_limiter.can_afford.side_effect = list(can_call_side_effect)
     else:
         orch.rate_limiter.can_call.return_value = True
+        orch.rate_limiter.can_afford.return_value = True
     orch.rate_limiter.wait_seconds.return_value = 1500  # 25 min
+    # state.max_daily_usd referenciado em _print_summary
+    orch.rate_limiter.state.max_daily_usd = 0.0
+
+    # Escalation retorna (texto/files, usage) — usage=None evita custo nos asserts
+    orch.escalation.unblock.return_value = ("instrução do Claude", None)
+    orch.escalation.implement_directly.return_value = ([], None)
 
     # Mock de _save_state para não tocar em disco
     orch._save_state = MagicMock()
@@ -83,6 +93,7 @@ def make_homolog_result(approved=True, feedback="ok", summary="", fix_suggestion
     r.feedback = feedback
     r.fix_suggestion = fix_suggestion
     r.error = error
+    r.usage = None
     return r
 
 
@@ -1199,7 +1210,7 @@ class TestEffortLowEscalation:
         orch.homologator.review.return_value = make_homolog_result(
             approved=False, feedback="ainda não"
         )
-        orch.escalation.implement_directly = MagicMock(return_value=["src/foo.ts"])
+        orch.escalation.implement_directly = MagicMock(return_value=(["src/foo.ts"], None))
 
         with patch("squire.time"):
             orch._run_homologation(task)
@@ -1229,7 +1240,7 @@ class TestEffortLowEscalation:
             make_homolog_result(approved=False, feedback=loop_summary),
             make_homolog_result(approved=True),
         ]
-        orch.escalation.implement_directly = MagicMock(return_value=[])
+        orch.escalation.implement_directly = MagicMock(return_value=([], None))
 
         with patch("squire.time"):
             orch._run_homologation(task)
@@ -1246,7 +1257,7 @@ class TestEffortLowEscalation:
         orch.homologator.review.return_value = make_homolog_result(
             approved=False, feedback="ainda não"
         )
-        orch.escalation.implement_directly = MagicMock(return_value=[])
+        orch.escalation.implement_directly = MagicMock(return_value=([], None))
 
         with patch("squire.time"):
             orch._run_homologation(task)
@@ -1268,7 +1279,7 @@ class TestEffortLowEscalation:
         orch.homologator.review.return_value = make_homolog_result(
             approved=False, feedback="ainda não"
         )
-        orch.escalation.implement_directly = MagicMock(return_value=[])
+        orch.escalation.implement_directly = MagicMock(return_value=([], None))
 
         with patch("squire.time"):
             orch._run_homologation(task)
@@ -1288,7 +1299,7 @@ class TestEffortLowEscalation:
             make_homolog_result(approved=False, feedback="ainda com erro"),
             make_homolog_result(approved=True),
         ]
-        orch.escalation.implement_directly = MagicMock(return_value=["src/GlobalStats.tsx"])
+        orch.escalation.implement_directly = MagicMock(return_value=(["src/GlobalStats.tsx"], None))
 
         with patch("squire.time"):
             orch._run_homologation(task)

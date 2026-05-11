@@ -188,6 +188,35 @@ for proj_dir in pathlib.Path('$SQUIRE_STATE_ROOT/projects').iterdir():
     else:
         print(f'  {proj_dir.name}: {calls}/{maxc} calls')
 " 2>/dev/null || info "Sem checkpoint disponível"
+
+    echo ""
+    bold "=== Budget ==="
+    python3 - "$SQUIRE_STATE_ROOT" << 'PYEOF' 2>/dev/null || info "Sem dados de custo"
+import json, sys, datetime, os
+from pathlib import Path
+
+root = Path(sys.argv[1])
+stats_file = root / "global-stats.json"
+budget_file = root / "budget.json"
+
+stats = json.loads(stats_file.read_text()) if stats_file.exists() else {}
+cfg = json.loads(budget_file.read_text()) if budget_file.exists() else {}
+
+today = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+spent = float(stats.get("cost_estimate_usd", 0.0)) if stats.get("date") == today else 0.0
+cap = float(os.environ.get("SQUIRE_DAILY_USD_BUDGET", cfg.get("daily_usd", 0)))
+tokens = int(stats.get("daily_tokens", 0)) if stats.get("date") == today else 0
+unknown = int(stats.get("daily_calls_unknown_cost", 0)) if stats.get("date") == today else 0
+
+if cap > 0:
+    pct = spent / cap * 100
+    marker = " ⚠" if pct >= 75 else ""
+    print(f"  Hoje: ${spent:.3f} / ${cap:.2f}  ({pct:.0f}%{marker})  |  tokens: {tokens:,}")
+else:
+    print(f"  Hoje: ${spent:.3f}  |  tokens: {tokens:,}  (sem cap configurado)")
+if unknown:
+    print(f"  ⚠ {unknown} chamada(s) sem usage reportado")
+PYEOF
 }
 
 cmd_kill() {
@@ -437,6 +466,141 @@ cmd_projects() {
     list_projects | sed 's/^/  /'
 }
 
+cmd_budget() {
+    local subcmd="${1:-show}"
+    case "$subcmd" in
+        ""|show)
+            python3 - "$SQUIRE_STATE_ROOT" << 'PYEOF'
+import json, sys, datetime
+from pathlib import Path
+
+root = Path(sys.argv[1])
+stats_file = root / "global-stats.json"
+budget_file = root / "budget.json"
+
+stats = {}
+if stats_file.exists():
+    try:
+        stats = json.loads(stats_file.read_text())
+    except Exception:
+        pass
+
+cfg = {}
+if budget_file.exists():
+    try:
+        cfg = json.loads(budget_file.read_text())
+    except Exception:
+        pass
+
+import os
+daily_cap = float(os.environ.get("SQUIRE_DAILY_USD_BUDGET", cfg.get("daily_usd", 0)))
+per_task_cap = float(os.environ.get("SQUIRE_PER_TASK_USD_CAP", cfg.get("per_task_usd", 0)))
+
+today = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+spent = float(stats.get("cost_estimate_usd", 0.0)) if stats.get("date") == today else 0.0
+tokens = int(stats.get("daily_tokens", 0)) if stats.get("date") == today else 0
+unknown = int(stats.get("daily_calls_unknown_cost", 0)) if stats.get("date") == today else 0
+by_model = stats.get("cost_by_model", {}) if stats.get("date") == today else {}
+
+print(f"=== Budget — {today} (UTC) ===")
+print()
+cap_str = f"${daily_cap:.2f}" if daily_cap > 0 else "sem limite"
+remaining = max(0.0, daily_cap - spent) if daily_cap > 0 else float("inf")
+pct = (spent / daily_cap * 100) if daily_cap > 0 else 0
+print(f"  Spent hoje:   ${spent:.3f}  ({tokens:,} tokens)")
+print(f"  Daily cap:    {cap_str}  ({pct:.0f}% usado)")
+if daily_cap > 0:
+    print(f"  Restante:     ${remaining:.3f}")
+print(f"  Per-task cap: ${per_task_cap:.2f}" if per_task_cap > 0 else "  Per-task cap: sem limite")
+if by_model:
+    print()
+    print("  Por modelo:")
+    for m, c in sorted(by_model.items()):
+        print(f"    {m}: ${c:.3f}")
+if unknown:
+    print()
+    print(f"  ⚠ {unknown} chamada(s) sem usage reportado — custo real pode ser maior")
+print()
+print("Para configurar:")
+print("  squire budget set --daily 10 --per-task 2")
+print("  (ou exporte SQUIRE_DAILY_USD_BUDGET / SQUIRE_PER_TASK_USD_CAP)")
+PYEOF
+            ;;
+        set)
+            shift
+            local daily="" per_task=""
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    --daily)    daily="$2";    shift 2 ;;
+                    --per-task) per_task="$2"; shift 2 ;;
+                    *) error "Opção desconhecida: $1"; exit 1 ;;
+                esac
+            done
+            if [[ -z "$daily" ]] && [[ -z "$per_task" ]]; then
+                error "Uso: squire budget set [--daily USD] [--per-task USD]"
+                exit 1
+            fi
+            mkdir -p "$SQUIRE_STATE_ROOT"
+            python3 - "$SQUIRE_STATE_ROOT/budget.json" "$daily" "$per_task" << 'PYEOF'
+import json, sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+daily = sys.argv[2]
+per_task = sys.argv[3]
+
+cfg = {}
+if path.exists():
+    try:
+        cfg = json.loads(path.read_text())
+    except Exception:
+        pass
+
+if daily:
+    cfg["daily_usd"] = float(daily)
+if per_task:
+    cfg["per_task_usd"] = float(per_task)
+
+path.write_text(json.dumps(cfg, indent=2))
+print(f"✓ Budget atualizado em {path}")
+print(f"  daily_usd:    ${cfg.get('daily_usd', 0):.2f}")
+print(f"  per_task_usd: ${cfg.get('per_task_usd', 0):.2f}")
+PYEOF
+            ;;
+        reset)
+            python3 - "$SQUIRE_STATE_ROOT/global-stats.json" << 'PYEOF'
+import json, sys, datetime
+from pathlib import Path
+
+path = Path(sys.argv[1])
+if not path.exists():
+    print("Nenhum global-stats.json para resetar.")
+    sys.exit(0)
+data = json.loads(path.read_text())
+today = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+data["date"] = today
+data["cost_estimate_usd"] = 0.0
+data["daily_tokens"] = 0
+data["cost_by_model"] = {}
+data["daily_calls_unknown_cost"] = 0
+data["daily_claude_code_calls"] = 0
+data["daily_local_llm_calls"] = 0
+path.write_text(json.dumps(data, indent=2))
+print(f"✓ Contadores diários resetados para {today}")
+PYEOF
+            ;;
+        *)
+            error "Subcomando desconhecido: '$subcmd'"
+            echo ""
+            echo "Uso:"
+            echo "  squire budget               Mostra gasto + budget atual"
+            echo "  squire budget set --daily X --per-task Y   Define limites"
+            echo "  squire budget reset         Zera contadores diários"
+            exit 1
+            ;;
+    esac
+}
+
 cmd_tasks_help() {
     bold "squire tasks — gerenciamento de tasks"
     echo ""
@@ -509,6 +673,9 @@ cmd_help() {
     echo -e "  ${CYAN}squire projects${RESET}            Lista projetos disponíveis"
     echo -e "  ${CYAN}squire new${RESET} <projeto>              Cria projeto novo"
     echo -e "  ${CYAN}squire new${RESET} <projeto> --repo <path> --name <nome> --stack <csv> --backend <aider|litellm>"
+    echo -e "  ${CYAN}squire budget${RESET}              Mostra gasto USD hoje + budget configurado"
+    echo -e "  ${CYAN}squire budget set${RESET} --daily X --per-task Y    Define limites USD"
+    echo -e "  ${CYAN}squire budget reset${RESET}        Zera contadores diários"
     echo ""
     echo -e "  Variável de ambiente: ${YELLOW}SQUIRE_STATE_ROOT${RESET} (padrão: $SQUIRE_STATE_ROOT)"
     echo ""
@@ -539,6 +706,7 @@ case "$CMD" in
     projects) cmd_projects ;;
     new)      cmd_new "$@" ;;
     tasks)    cmd_tasks "$@" ;;
+    budget)   cmd_budget "$@" ;;
     help|-h|--help) cmd_help ;;
     *)
         error "Comando desconhecido: '$CMD'"
