@@ -127,7 +127,7 @@ where it left off. Statuses from the `TaskStatus` enum
 `testing`, `homologating`, `completed`, `blocked`.
 
 In parallel with task status, the `Cursor`
-([`models.py:175`](../../models.py)) tracks the current `CursorStep`
+([`models.py:178`](../../models.py)) tracks the current `CursorStep`
 within a round: `planning`, `red_phase` (TDD: writing tests before
 implementation), `llm_execution`, `testing`, `homologation`, `completed`.
 

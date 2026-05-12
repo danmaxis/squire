@@ -122,7 +122,7 @@ crashar no meio, `squire resume` reposiciona o cursor exatamente onde parou.
 Os status do enum `TaskStatus` ([`models.py:25`](../models.py)) são: `pending`,
 `implementing`, `testing`, `homologating`, `completed`, `blocked`.
 
-Em paralelo ao status da task, o `Cursor` ([`models.py:175`](../models.py))
+Em paralelo ao status da task, o `Cursor` ([`models.py:178`](../models.py))
 rastreia o `CursorStep` corrente dentro de uma rodada: `planning`, `red_phase`
 (TDD: escrita de testes antes da implementação), `llm_execution`, `testing`,
 `homologation`, `completed`.
