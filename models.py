@@ -168,6 +168,9 @@ class CommitSummary(BaseModel):
 
 class CommitLog(BaseModel):
     commits: list[CommitSummary] = []
+    # Preenchido quando `git log` falha; permite ao dashboard distinguir
+    # "projeto sem commits ainda" de "esperava arquivo mas git quebrou".
+    error: Optional[str] = None
 
 
 # ── Checkpoint ─────────────────────────────────────────────────────
@@ -225,6 +228,7 @@ class Checkpoint(BaseModel):
 
 class SessionLock(BaseModel):
     holder: str
+    project_id: Optional[str] = None
     acquired_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     ttl_minutes: int = 60
     pid: int = 0

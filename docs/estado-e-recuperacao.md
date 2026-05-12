@@ -32,6 +32,7 @@ $SQUIRE_STATE_ROOT/
         ├── tasks.json            ← backlog
         ├── checkpoint.json       ← cursor + recovery hints + rate state
         ├── history.json          ← lista append-only de eventos
+        ├── commits.json          ← log de commits (sempre presente)
         └── progress.txt          ← memória de longo prazo (texto livre)
 ```
 
@@ -131,6 +132,38 @@ Append-only. Cada evento é um `HistoryEvent` ([`models.py:143`](../models.py)):
 Tipos em [`models.EventType`](../models.py). Útil para auditoria, geração
 de `progress.txt`, e (futuramente) live dashboard via JSONL.
 
+### `commits.json` — log de commits do projeto
+
+Pydantic: [`models.CommitLog`](../models.py). Recompilado a partir do
+`git log` do repo do projeto pelo [`Squire._refresh_commits_json`](../squire.py)
+no início de cada sessão e após cada task concluída. O dashboard lê este
+arquivo em vez de executar `git log` em runtime.
+
+```json
+{
+  "commits": [
+    {
+      "sha": "ab4432c…",
+      "message": "docs: note dashboard as second writer",
+      "timestamp": "2026-05-11T14:24:33Z",
+      "diff_summary": "1 arquivo(s) alterado(s)",
+      "files_changed": ["docs/arquitetura.md"]
+    }
+  ],
+  "error": null
+}
+```
+
+**Sempre escrito**, mesmo em falha — o dashboard depende disso para
+distinguir "projeto sem commits ainda" de "arquivo sumiu":
+
+- Sucesso (inclusive 0 commits): `{"commits": [...], "error": null}`
+- `git log` falha (repo sem `.git`, comando travado, etc):
+  `{"commits": [], "error": "git log falhou: <stderr>"}`
+
+Consumidores devem tratar `error != null` como erro de provisionamento,
+não como lista vazia.
+
 ### `progress.txt` — memória de longo prazo
 
 Texto livre gerado por [`progress.py`](../progress.py) após cada task
@@ -191,15 +224,22 @@ Apenas uma sessão squire por instalação por vez. O lock é um JSON em
 ```json
 {
   "holder": "sess-20260511-1422-a3f4c1",
+  "project_id": "squire-dashboard",
   "acquired_at": "2026-05-11T14:22:01Z",
   "ttl_minutes": 60,
   "pid": 28471
 }
 ```
 
+> `project_id` é o identificador estruturado do projeto que detém o lock.
+> Consumidores externos (dashboard, ferramentas de inspeção) devem fazer
+> match exato contra este campo — **nunca** parsear `holder` por substring,
+> que casa prefixos diferentes (ex: lock em `proj-happy` colidindo com
+> `proj`). Pode vir `null` em locks antigos, gravados antes desta mudança.
+
 ### Aquisição
 
-`acquire_lock(session_id)` ([`checkpoint.py:119`](../checkpoint.py)):
+`acquire_lock(session_id, project_id=None)` ([`checkpoint.py:119`](../checkpoint.py)):
 
 1. Se não existe → cria e retorna `True`
 2. Se existe e `holder == session_id` → renova e retorna `True` (reentrante)

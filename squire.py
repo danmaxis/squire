@@ -256,43 +256,50 @@ class Squire:
         O dashboard lê este arquivo em vez de fazer git log no container —
         evita shell-exec em runtime, ignora repos sem .git e mantém
         diff_summary acessível para a UI.
+
+        Sempre escreve o arquivo, mesmo em falha: o dashboard depende disso
+        para diferenciar "projeto recém-criado, sem commits" de "arquivo
+        sumiu". Em falha, `CommitLog.error` carrega o motivo.
         """
         repo = self.project.repo_path
+        commits: list[CommitSummary] = []
+        error: Optional[str] = None
         try:
             fmt = "%H%x1f%s%x1f%aI%x1f"
             log_out = subprocess.run(
                 ["git", "log", f"-n{limit}", f"--format={fmt}", "--name-only"],
                 cwd=repo, capture_output=True, text=True, timeout=10,
             )
-            if log_out.returncode != 0 or not log_out.stdout.strip():
-                return
-
-            commits: list[CommitSummary] = []
-            for block in log_out.stdout.split("\n\n"):
-                block = block.strip()
-                if not block:
-                    continue
-                header, _, files_block = block.partition("\n")
-                parts = header.split("\x1f")
-                if len(parts) < 3:
-                    continue
-                sha, message, ts = parts[0], parts[1], parts[2]
-                files = [ln for ln in files_block.split("\n") if ln.strip()]
-                try:
-                    when = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-                except ValueError:
-                    when = datetime.now(timezone.utc)
-                commits.append(CommitSummary(
-                    sha=sha,
-                    message=message,
-                    timestamp=when,
-                    diff_summary=f"{len(files)} arquivo(s) alterado(s)",
-                    files_changed=files,
-                ))
-
-            ckpt.save_commits(self.project.id, CommitLog(commits=commits))
+            if log_out.returncode != 0:
+                stderr = log_out.stderr.strip()[:200] or f"exit {log_out.returncode}"
+                error = f"git log falhou: {stderr}"
+            else:
+                for block in log_out.stdout.split("\n\n"):
+                    block = block.strip()
+                    if not block:
+                        continue
+                    header, _, files_block = block.partition("\n")
+                    parts = header.split("\x1f")
+                    if len(parts) < 3:
+                        continue
+                    sha, message, ts = parts[0], parts[1], parts[2]
+                    files = [ln for ln in files_block.split("\n") if ln.strip()]
+                    try:
+                        when = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                    except ValueError:
+                        when = datetime.now(timezone.utc)
+                    commits.append(CommitSummary(
+                        sha=sha,
+                        message=message,
+                        timestamp=when,
+                        diff_summary=f"{len(files)} arquivo(s) alterado(s)",
+                        files_changed=files,
+                    ))
         except Exception as e:
+            error = f"{type(e).__name__}: {e}"
             log(f"Falha ao gerar commits.json: {e}", "warn")
+
+        ckpt.save_commits(self.project.id, CommitLog(commits=commits, error=error))
 
     # ── Buscar próxima task ────────────────────────────────────────
 
@@ -1056,7 +1063,7 @@ class Squire:
         config.ensure_dirs()
 
         # Adquirir lock
-        if not ckpt.acquire_lock(self.session_id):
+        if not ckpt.acquire_lock(self.session_id, self.project_id):
             log("Outra sessão está ativa. Abortando.", "error")
             sys.exit(1)
 
@@ -1070,6 +1077,11 @@ class Squire:
 
         self._start_heartbeat()
         self.project.status = ProjectStatus.implementing
+
+        # Garante que commits.json exista desde a primeira sessão. Sem isto,
+        # projetos recém-criados nunca têm o arquivo até a primeira task
+        # concluída, e o dashboard mascara ENOENT como "lista vazia".
+        self._refresh_commits_json()
 
         try:
             while True:

@@ -116,8 +116,14 @@ def append_event(project_id: str, event: HistoryEvent) -> None:
 
 # ── Session Lock ───────────────────────────────────────────────────
 
-def acquire_lock(session_id: str) -> bool:
-    """Tenta adquirir o lock. Retorna True se conseguiu."""
+def acquire_lock(session_id: str, project_id: Optional[str] = None) -> bool:
+    """Tenta adquirir o lock. Retorna True se conseguiu.
+
+    `project_id` é gravado de forma estruturada no lock para que consumidores
+    (ex: dashboard) consigam fazer match exato de projeto sem precisar parsear
+    o `holder` por substring — substring casa prefixos diferentes (`proj` vs
+    `proj-happy`) e gera 409 falso-positivo.
+    """
     existing = load_model(config.SESSION_LOCK_FILE, SessionLock)
 
     if existing is not None:
@@ -134,6 +140,7 @@ def acquire_lock(session_id: str) -> bool:
 
     lock = SessionLock(
         holder=session_id,
+        project_id=project_id,
         acquired_at=datetime.now(timezone.utc),
         ttl_minutes=config.SESSION_LOCK_TTL_MINUTES,
         pid=os.getpid(),
