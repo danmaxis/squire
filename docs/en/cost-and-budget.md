@@ -35,7 +35,7 @@ These fields live in the `TokenUsage` struct
 ([`models.py:270`](../../models.py)).
 
 Accounting is centralized in `Squire._account_call`
-([`squire.py:100`](../../squire.py)) which:
+([`squire.py:102`](../../squire.py)) which:
 
 1. Adds `cost_usd` to `GlobalStats.cost_estimate_usd` (daily accumulated)
 2. Adds `tokens` to `GlobalStats.daily_tokens`

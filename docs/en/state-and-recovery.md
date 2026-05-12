@@ -276,7 +276,7 @@ automatic commits:
 
 ### 1. Before each task (auto-snapshot)
 
-`_auto_snapshot_commit` ([`squire.py:154`](../../squire.py)) runs:
+`_auto_snapshot_commit` ([`squire.py:156`](../../squire.py)) runs:
 
 ```bash
 git add -A
@@ -290,7 +290,7 @@ lost.
 
 ### 2. After approved homologation (auto-commit of the task)
 
-`_commit_task_completion` ([`squire.py:203`](../../squire.py)):
+`_commit_task_completion` ([`squire.py:205`](../../squire.py)):
 
 ```bash
 git add -A

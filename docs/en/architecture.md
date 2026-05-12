@@ -145,7 +145,7 @@ implementation), `llm_execution`, `testing`, `homologation`, `completed`.
    instruction, call backend, run tests. Every 5 failures, ask Claude
    Code for help (`TechnicalEscalation.unblock`).
 4. **Mechanical gate** — before spending a Claude Code call,
-   `_pre_homologation_checks` ([`squire.py:567`](../../squire.py)) runs
+   `_pre_homologation_checks` ([`squire.py:622`](../../squire.py)) runs
    typecheckers/compilers per language (tsc, cargo check, mvn compile,
    go build, etc.) and detects anti-vibe-coding patterns (`any`,
    `# type: ignore`, `unsafe`, `catch unreachable`). Failure → back to

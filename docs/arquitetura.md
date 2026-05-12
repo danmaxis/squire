@@ -139,7 +139,7 @@ rastreia o `CursorStep` corrente dentro de uma rodada: `planning`, `red_phase`
    monta instrução, chama backend, roda testes. A cada 5 falhas, pede
    ajuda técnica ao Claude Code (`TechnicalEscalation.unblock`).
 4. **Gate mecânico** — antes de gastar uma call ao Claude Code,
-   `_pre_homologation_checks` ([`squire.py:567`](../squire.py)) roda
+   `_pre_homologation_checks` ([`squire.py:622`](../squire.py)) roda
    typecheckers/compiladores por linguagem (tsc, cargo check, mvn compile,
    go build, etc.) e detecta padrões anti-vibe-coding (`any`, `# type: ignore`,
    `unsafe`, `catch unreachable`). Falha → volta para o inner loop sem
