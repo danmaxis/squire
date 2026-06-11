@@ -26,7 +26,9 @@ services:
       # /api/alerts/ack escreve acknowledged/dismiss em alerts.json)
       - /home/ai-debian/squire-state:/data
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      # 127.0.0.1 (não localhost): o busybox wget resolve localhost para ::1
+      # e o node escuta só em IPv4 → connection refused
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
