@@ -367,18 +367,21 @@ PYEOF
 cmd_new() {
     local project="${1:-}"; shift || true
     if [[ -z "$project" ]] || [[ "$project" == --* ]]; then
-        error "Uso: squire new <project-id> [--repo <path>] [--name <nome>] [--stack <csv>] [--backend aider|litellm]"
+        error "Uso: squire new <project-id> [--repo <path>] [--name <nome>] [--stack <csv>] [--backend litellm|opencode|crush] [--yes] [--git-init]"
         exit 1
     fi
 
     local repo_path="" name="" stack="typescript" backend="opencode"
+    local assume_yes=false git_init=false
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --repo)    repo_path="$2"; shift 2 ;;
-            --name)    name="$2";      shift 2 ;;
-            --stack)   stack="$2";     shift 2 ;;
-            --backend) backend="$2";   shift 2 ;;
+            --repo)     repo_path="$2"; shift 2 ;;
+            --name)     name="$2";      shift 2 ;;
+            --stack)    stack="$2";     shift 2 ;;
+            --backend)  backend="$2";   shift 2 ;;
+            --yes)      assume_yes=true; shift ;;
+            --git-init) git_init=true;   shift ;;
             *) error "Opção desconhecida: $1"; exit 1 ;;
         esac
     done
@@ -445,21 +448,44 @@ TASKEOF
     ok "Projeto '$project' criado em $proj_dir"
     echo ""
 
+    # Provisionar o repositório git (--git-init)
+    if $git_init; then
+        mkdir -p "$repo_path"
+        if [[ ! -d "$repo_path/.git" ]]; then
+            if git -C "$repo_path" init -q && \
+               git -C "$repo_path" -c user.name="squire" -c user.email="squire@local" \
+                   commit --allow-empty -q -m "chore: repositório inicial (squire new)"; then
+                ok "Repositório git inicializado em $repo_path"
+            else
+                warn "Falha ao inicializar git em $repo_path — inicialize manualmente"
+            fi
+        else
+            ok "Repositório git já existe em $repo_path"
+        fi
+        echo ""
+    fi
+
     # Perguntar se deseja usar 'squire tasks plan' para criar as tasks iniciais
-    echo -e -n "  Deseja planejar as tasks agora com Claude? [y/N] "
-    local resposta
-    read -r resposta
-    if [[ "${resposta,,}" == "y" ]]; then
-        echo ""
-        SQUIRE_STATE_ROOT="$SQUIRE_STATE_ROOT" \
-            "$SQUIRE_VENV" -u "$SQUIRE_DIR/tasks_cli.py" plan "$project"
-        echo ""
+    if ! $assume_yes; then
+        echo -e -n "  Deseja planejar as tasks agora com Claude? [y/N] "
+        local resposta
+        read -r resposta
+        if [[ "${resposta,,}" == "y" ]]; then
+            echo ""
+            SQUIRE_STATE_ROOT="$SQUIRE_STATE_ROOT" \
+                "$SQUIRE_VENV" -u "$SQUIRE_DIR/tasks_cli.py" plan "$project"
+            echo ""
+        fi
     fi
 
     echo -e "  ${BOLD}Próximos passos:${RESET}"
     echo -e "  1. Edite as tasks:   ${CYAN}$editor $proj_dir/tasks.json${RESET}"
-    echo -e "  2. Crie o repo:      ${CYAN}mkdir -p $repo_path && cd $repo_path && git init${RESET}"
-    echo -e "  3. Execute:          ${CYAN}squire run $project${RESET}"
+    if $git_init; then
+        echo -e "  2. Execute:          ${CYAN}squire run $project${RESET}"
+    else
+        echo -e "  2. Crie o repo:      ${CYAN}mkdir -p $repo_path && cd $repo_path && git init${RESET}"
+        echo -e "  3. Execute:          ${CYAN}squire run $project${RESET}"
+    fi
     echo ""
     echo -e "  Ajuste a descrição do projeto:"
     echo -e "  ${CYAN}$editor $proj_dir/project.json${RESET}"
@@ -612,9 +638,10 @@ cmd_tasks_help() {
     echo -e "  ${CYAN}squire tasks list${RESET}   <projeto>              Lista tasks com status visual"
     echo -e "  ${CYAN}squire tasks add${RESET}    <projeto> --title \"...\" [--desc \"...\"] [--id \"...\"] [--skip-homolog] [--max N] [--max-homolog N]"
     echo -e "  ${CYAN}squire tasks edit${RESET}   <projeto> [<id>]       Edita no \$EDITOR (sem id = tasks.json inteiro)"
-    echo -e "  ${CYAN}squire tasks rm${RESET}     <projeto> <id>         Remove task por ID"
-    echo -e "  ${CYAN}squire tasks split${RESET}  <projeto> <id>         Claude subdivide task em subtasks"
-    echo -e "  ${CYAN}squire tasks plan${RESET}   <projeto> [--desc \"...\"]  Claude planeja tasks (rascunho + refinamento interativo)"
+    echo -e "  ${CYAN}squire tasks rm${RESET}     <projeto> <id> [--yes]  Remove task por ID (--yes pula confirmação)"
+    echo -e "  ${CYAN}squire tasks split${RESET}  <projeto> <id> [--yes]  Claude subdivide task (--yes aceita 1ª proposta)"
+    echo -e "  ${CYAN}squire tasks plan${RESET}   <projeto> [--desc \"...\"] [--mode append|replace] [--no-refine] [--yes]"
+    echo -e "                                       Claude planeja tasks (--yes = sem prompts)"
     echo ""
     echo -e "  Exemplos:"
     echo -e "    squire tasks pilotinho"
@@ -686,7 +713,7 @@ cmd_help() {
     echo -e "  ${CYAN}squire rm${RESET} <projeto>              Remove projeto (confirmação dupla: nome + palavra aleatória)"
     echo -e "  ${CYAN}squire projects${RESET}            Lista projetos disponíveis"
     echo -e "  ${CYAN}squire new${RESET} <projeto>              Cria projeto novo"
-    echo -e "  ${CYAN}squire new${RESET} <projeto> --repo <path> --name <nome> --stack <csv> --backend <aider|litellm>"
+    echo -e "  ${CYAN}squire new${RESET} <projeto> [--repo <path>] [--name <nome>] [--stack <csv>] [--backend <litellm|opencode|crush>] [--yes] [--git-init]"
     echo -e "  ${CYAN}squire doctor${RESET} [--fix]     Health check do ambiente (--fix limpa locks mortos)"
     echo -e "  ${CYAN}squire alerts${RESET}              Lista alertas pendentes"
     echo -e "  ${CYAN}squire alerts ack${RESET} <n>|--all [--project <id>] [--task <id>]  Reconhece alertas"
