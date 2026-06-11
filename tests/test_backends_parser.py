@@ -117,3 +117,72 @@ class TestApplyChanges:
         files = b._apply_changes(response, tmp_path)
         assert "Dockerfile" in files
         assert (tmp_path / "Dockerfile").exists()
+
+
+# ── Validação de caminhos (lixo do Qwen fora dos fences) ─────────────
+
+class TestPlausibleRelpath:
+    """_is_plausible_relpath rejeita o lixo observado em produção."""
+
+    @pytest.mark.parametrize("junk", [
+        "# src",            # comentário markdown
+        '# tests',
+        'rm -rf "',         # linha de shell
+        "pytest==8.0.0",    # linha de requirements
+        "return a ",        # linha de código
+        "where = [\".\"]",  # linha de toml
+        "../../etc/passwd", # traversal
+        "/abs/path.py",     # absoluto
+        "a/../b.py",        # traversal embutido
+        "src/",             # termina em barra (segmento vazio)
+        "src",              # diretório sem extensão
+        "foo.",             # extensão vazia
+        "-rf.py",           # começa com hífen
+        "a" * 201 + ".py",  # longo demais
+        "",
+    ])
+    def test_rejeita_lixo(self, junk):
+        from backends import _is_plausible_relpath
+        assert _is_plausible_relpath(junk) is False
+
+    @pytest.mark.parametrize("good", [
+        "src/foo.ts",
+        "hello.py",
+        "a/b/c.py",
+        "Dockerfile",
+        "Makefile",
+        ".dockerignore",
+        ".gitignore",
+        "src/components/Foo-Bar.tsx",
+        "pkg/@scope/index.d.ts",
+        "docs/README.md",
+    ])
+    def test_aceita_caminhos_legitimos(self, good):
+        from backends import _is_plausible_relpath
+        assert _is_plausible_relpath(good) is True
+
+
+class TestApplyChangesJunkProtection:
+    def test_lixo_nao_vira_arquivo(self, tmp_path, capsys):
+        from backends import LiteLLMBackend
+        b = LiteLLMBackend(model="m", base_url="http://x", api_key="k")
+        response = (
+            "Aqui está:\n"
+            "pytest==8.0.0\n"
+            "```\n"
+            "flask==3.0.0\n"
+            "```\n"
+            "```filepath:src/app.py\n"
+            "print('ok')\n"
+            "```\n"
+        )
+        touched = b._apply_changes(response, tmp_path)
+        assert touched == ["src/app.py"]
+        assert (tmp_path / "src" / "app.py").read_text() == "print('ok')"
+        assert not (tmp_path / "pytest==8.0.0").exists()
+
+    def test_traversal_e_bloqueado_na_escrita(self, tmp_path):
+        from backends import LiteLLMBackend
+        b = LiteLLMBackend(model="m", base_url="http://x", api_key="k")
+        with pytest.raises(ValueError):
+            b._write_file(tmp_path, "../fora.py", "x")

@@ -287,3 +287,59 @@ class TestReviewTestIntegrity:
             result = h.review(self._make_task(), self._make_context(), test_hashes=None)
 
         assert result.approved is True
+
+
+# ── TestErrorKind ────────────────────────────────────────────────────
+
+class TestErrorKind:
+    """review() classifica falhas em error_kind: infra (transiente) vs config."""
+
+    def _review(self, tmp_path, **subprocess_behavior):
+        from models import LLMContextSummary, Task
+        h = make_homologator(tmp_path)
+        task = Task(id="task-001", title="T")
+        ctx = LLMContextSummary()
+        with patch("homologator.subprocess.run", **subprocess_behavior):
+            return h.review(task=task, context=ctx)
+
+    def _proc(self, stdout="", stderr="", returncode=0):
+        p = MagicMock()
+        p.returncode = returncode
+        p.stdout = stdout
+        p.stderr = stderr
+        return p
+
+    def test_returncode_diferente_de_zero_e_infra(self, tmp_path):
+        r = self._review(tmp_path, return_value=self._proc(returncode=2, stderr="boom"))
+        assert r.error_kind == "infra"
+
+    def test_stdout_vazio_e_infra(self, tmp_path):
+        r = self._review(tmp_path, return_value=self._proc(stdout="   "))
+        assert r.error_kind == "infra"
+        assert "vazio" in r.error
+
+    def test_timeout_e_infra(self, tmp_path):
+        import subprocess as sp
+        r = self._review(tmp_path, side_effect=sp.TimeoutExpired(cmd="claude", timeout=180))
+        assert r.error_kind == "infra"
+        assert "timeout" in r.error.lower()
+
+    def test_binario_ausente_e_config(self, tmp_path):
+        r = self._review(tmp_path, side_effect=FileNotFoundError("claude"))
+        assert r.error_kind == "config"
+        assert "SQUIRE_CLAUDE_BIN" in r.error
+
+    def test_json_invalido_e_infra(self, tmp_path):
+        r = self._review(tmp_path, return_value=self._proc(stdout="not json at all"))
+        assert r.error_kind == "infra"
+        assert r.approved is False
+
+    def test_review_valido_sem_error_kind(self, tmp_path):
+        import json as _json
+        envelope = _json.dumps({
+            "result": _json.dumps({"approved": True, "summary": "ok", "feedback": "f"}),
+            "total_cost_usd": 0.01,
+        })
+        r = self._review(tmp_path, return_value=self._proc(stdout=envelope))
+        assert r.error_kind is None
+        assert r.approved is True

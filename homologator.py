@@ -64,6 +64,9 @@ class HomologationResult:
     fix_suggestion: str = ""     # passos concretos para o agente local corrigir (rejeição)
     suggestions: list[str] = None  # melhorias sugeridas (mesmo se aprovado)
     error: str | None = None     # erro de execução (não de review)
+    # Classificação do erro: "infra" = transiente (parse/timeout/stdout vazio —
+    # vale retry), "config" = não se resolve sozinho (binário ausente), None = sem erro
+    error_kind: str | None = None
     usage: Optional[TokenUsage] = None  # tokens + custo reportados pelo Claude Code
 
     def __post_init__(self):
@@ -150,8 +153,9 @@ class Homologator:
 
             if result.returncode != 0:
                 return HomologationResult(
-                    error=f"Claude Code exited with code {result.returncode}: "
+                    error=f"Claude Code saiu com código {result.returncode}: "
                           f"{result.stderr[:500]}",
+                    error_kind="infra",
                 )
 
             if not result.stdout.strip():
@@ -159,6 +163,7 @@ class Homologator:
                 stderr_hint = result.stderr[:200] if result.stderr else "sem stderr"
                 return HomologationResult(
                     error=f"Claude Code retornou stdout vazio (stderr: {stderr_hint})",
+                    error_kind="infra",
                 )
 
             self._vlog("←", result.stdout[:800])
@@ -166,11 +171,16 @@ class Homologator:
 
         except subprocess.TimeoutExpired:
             return HomologationResult(
-                error="Claude Code review timed out (180s)",
+                error="Claude Code excedeu o timeout de 180s no review",
+                error_kind="infra",
             )
         except FileNotFoundError:
             return HomologationResult(
-                error=f"Claude Code binary not found: {self.claude_bin}",
+                error=(
+                    f"Binário do Claude Code não encontrado: '{self.claude_bin}' "
+                    f"— verifique SQUIRE_CLAUDE_BIN"
+                ),
+                error_kind="config",
             )
 
     def _build_review_prompt(
@@ -339,6 +349,7 @@ Responda APENAS com JSON válido, sem markdown:
             else:
                 return HomologationResult(
                     error=f"Unexpected response format: {type(content)}",
+                    error_kind="infra",
                     usage=usage,
                 )
 
@@ -359,6 +370,7 @@ Responda APENAS com JSON válido, sem markdown:
                 approved=False,
                 feedback=f"Não foi possível parsear a resposta: {stdout[:500]}",
                 error=f"Parse error: {e}",
+                error_kind="infra",
                 usage=usage,
             )
 

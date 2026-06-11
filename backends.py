@@ -67,6 +67,32 @@ def _is_source_file(rel_path: str) -> bool:
         return False
     return p.suffix in _SOURCE_EXTENSIONS or p.name in _SOURCE_NAMES
 
+
+# Arquivos conhecidos sem extensão (válidos como último segmento de caminho)
+_NO_EXT_FILES = {"dockerfile", "makefile", "procfile", "gemfile", "rakefile",
+                 "vagrantfile", "jenkinsfile", "brewfile"}
+
+# Caminho relativo plausível: segmentos de [palavra . @ -], sem espaços,
+# sem metacaracteres de shell (#, ", =, etc.) — rejeita o lixo que o Qwen
+# derrama fora dos fences ('# src', 'rm -rf "', 'pytest==8.0.0', 'return a ')
+_VALID_REL_PATH_RE = re.compile(r"^[A-Za-z0-9_.@-]+(/[A-Za-z0-9_.@-]+)*$")
+
+
+def _is_plausible_relpath(path: str) -> bool:
+    """True se o candidato parece um caminho relativo legítimo de arquivo."""
+    if not path or len(path) > 200:
+        return False
+    if path.startswith(("/", "-")):
+        return False
+    if not _VALID_REL_PATH_RE.match(path):
+        return False
+    parts = path.split("/")
+    if any(p in ("..", ".") for p in parts):
+        return False
+    last = parts[-1]
+    has_extension = "." in last.lstrip(".") or (last.startswith(".") and len(last) > 1)
+    return (has_extension and not last.endswith(".")) or last.lower() in _NO_EXT_FILES
+
 # ── LLM global lock ────────────────────────────────────────────────
 # Lock de arquivo para garantir que apenas um processo chama o llama.cpp
 # por vez. Evita saturação de CPU quando múltiplas ferramentas rodam juntas
@@ -235,8 +261,24 @@ class LiteLLMBackend(CodingBackend):
                 response.raise_for_status()
                 return response.json()
             except httpx.HTTPStatusError as e:
-                if e.response.status_code < 500:
-                    raise  # 4xx: problema no request, não retry
+                code = e.response.status_code
+                if code < 500:
+                    # 4xx: problema no request, não retry — mensagem acionável
+                    if code in (401, 403):
+                        raise RuntimeError(
+                            f"LLM API recusou a chave (HTTP {code}) em {self.base_url} "
+                            f"— verifique SQUIRE_LITELLM_KEY"
+                        ) from e
+                    if code == 404:
+                        raise RuntimeError(
+                            f"Modelo '{self.model}' não encontrado em {self.base_url} "
+                            f"(HTTP 404) — verifique SQUIRE_LITELLM_MODEL e os modelos "
+                            f"servidos pelo endpoint"
+                        ) from e
+                    raise RuntimeError(
+                        f"LLM API retornou HTTP {code} em {self.base_url}: "
+                        f"{e.response.text[:300]}"
+                    ) from e
                 last_exc = e
             except (httpx.ConnectError, httpx.RemoteProtocolError,
                     httpx.ReadError, httpx.WriteError) as e:
@@ -244,7 +286,15 @@ class LiteLLMBackend(CodingBackend):
             finally:
                 client.close()
 
-        raise RuntimeError(f"LLM API falhou após {len(_HTTP_RETRY_DELAYS)} retries: {last_exc}")
+        if isinstance(last_exc, httpx.ConnectError):
+            raise RuntimeError(
+                f"Endpoint LLM inacessível em {self.base_url} — o serviço "
+                f"(Ollama/LiteLLM) está rodando? ({last_exc})"
+            )
+        raise RuntimeError(
+            f"LLM API em {self.base_url} falhou após {len(_HTTP_RETRY_DELAYS)} "
+            f"retries: {last_exc}"
+        )
 
     def _apply_changes(self, llm_response: str, project_path: Path) -> list[str]:
         """
@@ -261,6 +311,13 @@ class LiteLLMBackend(CodingBackend):
         current_content: list[str] = []
         pending_path: str | None = None
 
+        def _flush(path: str, content: list[str]) -> None:
+            try:
+                self._write_file(project_path, path, "\n".join(content))
+                files_touched.append(path)
+            except ValueError as e:
+                print(f"⚠ fence ignorado ({e})")
+
         for line in llm_response.split("\n"):
             stripped = line.strip()
 
@@ -270,8 +327,7 @@ class LiteLLMBackend(CodingBackend):
 
                 if detected_path:
                     if current_file:
-                        self._write_file(project_path, current_file, "\n".join(current_content))
-                        files_touched.append(current_file)
+                        _flush(current_file, current_content)
                     current_file = detected_path
                     current_content = []
                 elif current_file:
@@ -281,8 +337,7 @@ class LiteLLMBackend(CodingBackend):
             elif stripped == "```":
                 if current_file:
                     # fence de fechamento
-                    self._write_file(project_path, current_file, "\n".join(current_content))
-                    files_touched.append(current_file)
+                    _flush(current_file, current_content)
                     current_file = None
                     current_content = []
                     pending_path = None
@@ -312,6 +367,10 @@ class LiteLLMBackend(CodingBackend):
         - ``src/foo.ts:``              → "src/foo.ts"  (dois-pontos trailing — padrão Qwen)
         - ``Dockerfile``               → "Dockerfile"  (sem extensão, sem barra)
         - ``.dockerignore``            → ".dockerignore" (começa com ponto)
+
+        Candidatos implausíveis (espaços, metacaracteres, traversal, sem
+        extensão reconhecível) retornam None — o Qwen às vezes derrama texto
+        fora dos fences e linhas soltas viravam arquivos-lixo.
         """
         if not fence_id:
             return None
@@ -322,25 +381,29 @@ class LiteLLMBackend(CodingBackend):
             return None
 
         if ":" in candidate:
-            after_colon = candidate.split(":", 1)[1].strip()
-            if after_colon and ("/" in after_colon or "." in after_colon):
-                return after_colon.rstrip(": \t")
+            after_colon = candidate.split(":", 1)[1].strip().rstrip(": \t")
+            if after_colon and _is_plausible_relpath(after_colon):
+                return after_colon
+            # linguagem sem caminho (ex: "```typescript") ou caminho inválido
+            if ":" in candidate:
+                candidate = candidate.split(":", 1)[0].strip()
 
-        # Caminho com barra ou extensão
-        if "/" in candidate or "." in candidate:
-            return candidate
-
-        # Arquivos conhecidos sem extensão nem barra (Dockerfile, Makefile, etc.)
-        _NO_EXT_FILES = {"dockerfile", "makefile", "procfile", "gemfile", "rakefile",
-                         "vagrantfile", "jenkinsfile", "brewfile"}
-        if candidate.lower() in _NO_EXT_FILES:
+        if _is_plausible_relpath(candidate):
             return candidate
 
         return None
 
     def _write_file(self, project_path: Path, relative_path: str, content: str) -> None:
-        """Escreve arquivo no projeto, criando diretórios se necessário."""
-        full_path = project_path / relative_path
+        """Escreve arquivo no projeto, criando diretórios se necessário.
+
+        Defesa em profundidade: revalida o caminho e garante que o destino
+        resolvido fica dentro do projeto antes de escrever.
+        """
+        if not _is_plausible_relpath(relative_path):
+            raise ValueError(f"caminho implausível: {relative_path!r}")
+        full_path = (project_path / relative_path).resolve()
+        if not full_path.is_relative_to(project_path.resolve()):
+            raise ValueError(f"caminho fora do projeto: {relative_path!r}")
         full_path.parent.mkdir(parents=True, exist_ok=True)
         full_path.write_text(content, encoding="utf-8")
 
