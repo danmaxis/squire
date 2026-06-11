@@ -12,9 +12,10 @@ no script bash `squire` (raiz do repo); cada subcomando é uma função
 ## Sumário
 
 - [Execução](#execução): `run` · `bg` · `resume` · `dry`
-- [Observação](#observação): `status` · `log`
+- [Observação](#observação): `status` · `log` · `doctor`
 - [Controle](#controle): `kill` · `unlock`
 - [Recuperação](#recuperação): `unblock` · `reset`
+- [Alertas](#alertas): `alerts list|ack|rm`
 - [Tasks](#tasks): `tasks list|add|edit|rm|split|plan`
 - [Projeto](#projeto): `new` · `projects` · `rm`
 - [Orçamento](#orçamento): `budget` · `budget set` · `budget reset`
@@ -124,6 +125,37 @@ $ squire log
 ...
 ```
 
+### `squire doctor [--fix]`
+
+Health check do ambiente (delegado para `doctor.py`). Verifica tudo que
+precisa estar de pé para uma sessão rodar e imprime `[ OK ]/[WARN]/[FAIL]/[INFO]`
+por item. Sai com código 1 se houver qualquer FAIL.
+
+Checks: state root gravável · endpoint do LLM acessível + modelos
+configurados disponíveis · binário `claude` no PATH (+versão) · binários
+dos backends em uso (`opencode`/`crush`) · `session.lock` (pid vivo? TTL
+expirado?) · `llm.lock` (flock em uso?) · sanidade por projeto (git repo,
+working tree sujo, tasks bloqueadas, sessão morta retomável) · alertas
+pendentes · frescor do `global-stats.json`.
+
+```bash
+$ squire doctor
+squire doctor
+
+Estado
+  [ OK ] state root  /home/ai-debian/squire-state
+
+LLM local
+  [ OK ] LLM endpoint  http://192.168.50.24:11434/v1
+  [ OK ] modelo 'journal-synth:latest'  disponível
+...
+10 ok · 1 warn · 0 fail
+```
+
+`--fix` aplica apenas limpezas seguras: remove `session.lock` cujo pid
+está comprovadamente morto e o arquivo `llm.lock` quando o flock está
+livre. Nunca remove locks de processos vivos.
+
 ## Controle
 
 ### `squire kill`
@@ -192,6 +224,57 @@ $ squire reset squire-dashboard task-005
 > `reset` descarta alterações não commitadas no working tree do projeto.
 > O squire faz auto-commit após cada task aprovada, então geralmente só
 > a task corrente é perdida — mas confirme com `git status` no repo antes.
+
+## Alertas
+
+Subcomandos delegados para `alerts_cli.py`. Alertas são gerados pelo squire
+em casos como `max_homologations_reached` e budget excedido, e ficam em
+`$SQUIRE_STATE_ROOT/alerts.json` até serem reconhecidos ou removidos.
+
+### `squire alerts list [--all] [--project <id>]`
+
+Lista alertas pendentes (não-reconhecidos) com índice 1-based, severidade,
+projeto/task, idade e mensagem. `--all` inclui os já reconhecidos (sem
+índice); `--project` filtra por projeto.
+
+```bash
+$ squire alerts list
+Alertas pendentes (2):
+  1  CRIT  claw-code-study/task-026a  71d  max_homologations_reached: Task '...' falhou 5 homologações
+  2  CRIT  semanario-infantil/task-009  65d  max_homologations_reached: Task '...' falhou 5 homologações
+```
+
+`squire alerts` sem subcomando é alias de `list`.
+
+### `squire alerts ack <n> [<n>…] | --all [--project <id>] [--task <id>]`
+
+Marca alertas como reconhecidos (`acknowledged: true` — o mesmo campo que
+o dashboard escreve). Por índice (referente à listagem de pendentes) ou em
+lote com `--all`, opcionalmente filtrado por `--project`/`--task`.
+
+```bash
+$ squire alerts ack 1 2
+✓ 2 alerta(s) reconhecido(s).
+
+$ squire alerts ack --all --project semanario-infantil
+✓ 4 alerta(s) reconhecido(s).
+```
+
+> [!NOTE]
+> O dashboard é um segundo escritor de `alerts.json` (POST `/api/alerts/ack`).
+> Índices podem sofrer corrida se um alerta for dispensado pelo dashboard
+> entre o `list` e o `ack` — em ambientes com dashboard ativo, prefira os
+> seletores `--project`/`--task`.
+
+### `squire alerts rm <n> [<n>…] | --acked | --all`
+
+Remove alertas do arquivo (equivalente ao "dismiss" do dashboard).
+`--acked` remove só os já reconhecidos; `--all` limpa tudo.
+
+```bash
+$ squire alerts rm --acked
+✓ 13 alerta(s) removido(s).
+```
 
 ## Tasks
 
@@ -317,7 +400,7 @@ Para confirmar, digite exatamente: my-api echo
 
 > **Insight:** o uso de palavra do alfabeto NATO (alpha, bravo, charlie, ...
 > zulu) evita `rm` acidental por copy-paste do histórico — você precisa ler
-> o prompt para saber qual palavra digitar. Veja [`squire.py:1179`](../squire.py).
+> o prompt para saber qual palavra digitar. Veja [`squire.py:1266`](../squire.py).
 
 ## Orçamento
 

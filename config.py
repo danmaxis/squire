@@ -10,8 +10,8 @@ from pathlib import Path
 
 # ── Paths ──────────────────────────────────────────────────────────
 
-# Raiz do estado persistente (volume Unraid montado na VM)
-STATE_ROOT = Path(os.environ["SQUIRE_STATE_ROOT"])
+# Raiz do estado persistente (disco local da VM; mesmo default do wrapper bash)
+STATE_ROOT = Path(os.getenv("SQUIRE_STATE_ROOT", "/home/ai-debian/squire-state"))
 
 PROJECTS_DIR = STATE_ROOT / "projects"
 ALERTS_FILE = STATE_ROOT / "alerts.json"

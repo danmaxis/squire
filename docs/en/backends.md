@@ -33,8 +33,10 @@ interface is `CodingBackend` in [`backends.py:108`](../../backends.py).
 
 ## LiteLLM
 
-Backend that calls an LLM via OpenAI-compatible HTTP. In Squire's default
-setup, it's the LiteLLM gateway on Zordon exposing the local Qwen 35B.
+Backend that calls an LLM via OpenAI-compatible HTTP. It works with any
+compatible endpoint: LiteLLM gateway, **Ollama** (`/v1`), or llama.cpp
+server. In Squire's current setup, it's Ollama on Zordon
+(`http://192.168.50.24:11434/v1`) serving `journal-synth:latest` (Qwen 35B).
 
 ### How it works
 

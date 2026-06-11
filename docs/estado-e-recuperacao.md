@@ -273,7 +273,7 @@ dois commits automáticos:
 
 ### 1. Antes de cada task (auto-snapshot)
 
-`_auto_snapshot_commit` ([`squire.py:156`](../squire.py)) roda:
+`_auto_snapshot_commit` ([`squire.py:174`](../squire.py)) roda:
 
 ```bash
 git add -A
@@ -287,7 +287,7 @@ trabalho real seria perdido.
 
 ### 2. Após homologação aprovada (auto-commit da task)
 
-`_commit_task_completion` ([`squire.py:205`](../squire.py)):
+`_commit_task_completion` ([`squire.py:223`](../squire.py)):
 
 ```bash
 git add -A
@@ -322,6 +322,14 @@ Não toca em nada além do `session.lock`.
 $ squire unlock
 ✓ Lock removido.
 ```
+
+### `squire doctor --fix` — limpeza segura de locks
+
+Alternativa ao `unlock` que só age quando é comprovadamente seguro:
+remove o `session.lock` apenas se o pid registrado está morto, e o
+arquivo `llm.lock` apenas se o flock está livre (o arquivo residual em
+si é inofensivo — o lock real é o flock, não a existência do arquivo).
+Locks de processos vivos nunca são removidos.
 
 ### `squire kill` — matar processo + lock
 
@@ -388,7 +396,7 @@ Para confirmar, digite exatamente: my-app foxtrot
 > **Insight — palavra NATO como confirmação.**
 > Alpha, bravo, charlie... zulu. Uma palavra aleatória do alfabeto fonético
 > é o suficiente para impedir `rm` acidental por copy-paste do histórico ou
-> autocompletar do shell. Veja [`squire.py:1179`](../squire.py).
+> autocompletar do shell. Veja [`squire.py:1266`](../squire.py).
 
 ## Cenários comuns
 

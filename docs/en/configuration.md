@@ -35,21 +35,25 @@ All start with `SQUIRE_`. Source: [`config.py`](../../config.py).
 
 | Variable             | Default                          | Effect                                         |
 | -------------------- | -------------------------------- | ---------------------------------------------- |
-| `SQUIRE_STATE_ROOT`  | (required — no default)          | Root of persistent state (all JSONs)           |
+| `SQUIRE_STATE_ROOT`  | `/home/ai-debian/squire-state`   | Root of persistent state (all JSONs)           |
 
 > [!IMPORTANT]
-> `SQUIRE_STATE_ROOT` is the only required variable. If not set,
-> `import config` fails immediately. The `squire` bash script (CLI)
-> injects a reasonable default (`/home/ai-debian/squire-state`) before
-> delegating to Python.
+> No variable is required: `SQUIRE_STATE_ROOT` defaults to
+> `/home/ai-debian/squire-state` (same default the `squire` bash wrapper
+> uses). Set the env var to point state elsewhere — the test suite does
+> this (in `tests/conftest.py`) so it never touches real state.
 
-### Local LLM (LiteLLM / llama.cpp)
+### Local LLM (OpenAI-compatible endpoint)
+
+Any OpenAI-compatible endpoint works: LiteLLM gateway, **Ollama** (`/v1`),
+llama.cpp server. In the current setup, it's Ollama on Zordon
+(`http://192.168.50.24:11434/v1`) serving `journal-synth:latest`.
 
 | Variable                | Default                              | Effect                                          |
 | ----------------------- | ------------------------------------ | ----------------------------------------------- |
-| `SQUIRE_LITELLM_URL`    | `http://localhost:4000/v1`           | LiteLLM gateway base URL                        |
-| `SQUIRE_LITELLM_MODEL`  | `journal-synth`                      | Default model (LiteLLM alias)                   |
-| `SQUIRE_LITELLM_KEY`    | `sk-local`                           | API key (local placeholder — LiteLLM doesn't enforce) |
+| `SQUIRE_LITELLM_URL`    | `http://localhost:4000/v1`           | OpenAI-compatible endpoint base URL             |
+| `SQUIRE_LITELLM_MODEL`  | `journal-synth`                      | Default model (id/alias on the endpoint)        |
+| `SQUIRE_LITELLM_KEY`    | `sk-local`                           | API key (placeholder — local endpoints don't enforce) |
 | `SQUIRE_MODEL_LOW`      | same as `LITELLM_MODEL`              | Model for `effort=low` tasks                    |
 | `SQUIRE_MODEL_MEDIUM`   | same as `LITELLM_MODEL`              | Model for `effort=medium` tasks                 |
 | `SQUIRE_MODEL_HIGH`     | same as `LITELLM_MODEL`              | Model for `effort=high` tasks                   |
@@ -171,9 +175,17 @@ Aggregated daily counters. Auto-reset when UTC day rolls.
   "daily_calls_unknown_cost": 0,
   "projects_touched_today": ["squire-dashboard"],
   "tasks_completed_today": 4,
-  "approval_first_try_rate": 0.75
+  "tasks_homologated_today": 4,
+  "tasks_approved_first_try_today": 3,
+  "approval_first_try_rate": 75.0
 }
 ```
+
+`approval_first_try_rate` is the percentage (0–100) of tasks approved on
+the 1st homologation among those homologated today
+(`tasks_approved_first_try_today / tasks_homologated_today`). Tasks with
+`skip_homologation` count in `tasks_completed_today` but stay out of the
+rate — they're auto-approved and would inflate the number.
 
 Reset with `squire budget reset`.
 
@@ -185,7 +197,10 @@ per-task budget exceeded, lock corruption.
 
 ### `.env.example` (repo root)
 
-Env var template for you to copy to `.env`:
+Env var template for you to copy to `.env`. The `squire` bash wrapper
+automatically `source`s `.env` at startup; use guarded exports
+(`export VAR="${VAR:-value}"`) so variables already exported in the shell
+take precedence over the file:
 
 ```bash
 # Required
@@ -226,7 +241,7 @@ In production (on Unraid), typical `STATE_ROOT` is `/mnt/user/data/squire/`
 
 ## Price table
 
-The `MODEL_PRICING_PER_1M` table in [`config.py:73`](../../config.py) maps
+The `MODEL_PRICING_PER_1M` table in [`config.py:111`](../../config.py) maps
 model names to `(USD/1M input tokens, USD/1M output tokens)`. Defaults
 reflect Anthropic's public pricing as of 2026-Q1:
 

@@ -5,6 +5,12 @@
 Problemas comuns + diagnóstico + fix. Organizado pelo sintoma observável,
 não pela causa raiz.
 
+> **Comece pelo doctor.** Antes de caçar a causa manualmente, rode
+> `squire doctor` — ele verifica endpoint do LLM, binários, locks e
+> sanidade dos projetos de uma vez, e aponta o comando de correção
+> para os problemas que reconhece. `squire doctor --fix` limpa locks
+> comprovadamente mortos.
+
 ## Sumário
 
 - ["Outra sessão está ativa" no startup](#outra-sessão-está-ativa-no-startup)
@@ -101,6 +107,11 @@ Claude estava rejeitando.
   $ squire reset my-app task-007    # descarta código + reseta
   ```
 - Se foi cap USD: aumente o cap na task ou globalmente e desbloqueie.
+- Depois de resolver, reconheça o alerta correspondente:
+  ```bash
+  $ squire alerts list
+  $ squire alerts ack --project my-app --task task-007
+  ```
 
 ## OpenCode escolheu o agente errado
 

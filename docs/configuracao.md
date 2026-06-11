@@ -36,21 +36,25 @@ Todas começam com `SQUIRE_`. Source: [`config.py`](../config.py).
 
 | Variável             | Default                          | Efeito                                         |
 | -------------------- | -------------------------------- | ---------------------------------------------- |
-| `SQUIRE_STATE_ROOT`  | (obrigatório — sem default)      | Raiz do estado persistente (todos os JSONs)    |
+| `SQUIRE_STATE_ROOT`  | `/home/ai-debian/squire-state`   | Raiz do estado persistente (todos os JSONs)    |
 
 > [!IMPORTANT]
-> `SQUIRE_STATE_ROOT` é a única variável obrigatória. Se não estiver setada,
-> `import config` falha imediatamente. O script bash `squire` (CLI) injeta
-> um default razoável (`/home/ai-debian/squire-state`) antes de delegar para
-> o Python.
+> Nenhuma variável é obrigatória: `SQUIRE_STATE_ROOT` tem default
+> `/home/ai-debian/squire-state` (o mesmo que o wrapper bash `squire` usa).
+> Sete a env var para apontar o estado para outro lugar — a suíte de testes
+> faz isso (em `tests/conftest.py`) para nunca tocar o estado real.
 
-### LLM local (LiteLLM / llama.cpp)
+### LLM local (endpoint OpenAI-compatible)
+
+Qualquer endpoint OpenAI-compatible serve: LiteLLM gateway, **Ollama**
+(`/v1`), llama.cpp server. No setup atual, é o Ollama no Zordon
+(`http://192.168.50.24:11434/v1`) servindo `journal-synth:latest`.
 
 | Variável                | Default                              | Efeito                                          |
 | ----------------------- | ------------------------------------ | ----------------------------------------------- |
-| `SQUIRE_LITELLM_URL`    | `http://localhost:4000/v1`           | Base URL do LiteLLM gateway                     |
-| `SQUIRE_LITELLM_MODEL`  | `journal-synth`                      | Modelo default (alias do LiteLLM)               |
-| `SQUIRE_LITELLM_KEY`    | `sk-local`                           | API key (placeholder local — LiteLLM não exige) |
+| `SQUIRE_LITELLM_URL`    | `http://localhost:4000/v1`           | Base URL do endpoint OpenAI-compatible          |
+| `SQUIRE_LITELLM_MODEL`  | `journal-synth`                      | Modelo default (id/alias no endpoint)           |
+| `SQUIRE_LITELLM_KEY`    | `sk-local`                           | API key (placeholder — endpoints locais não exigem) |
 | `SQUIRE_MODEL_LOW`      | igual a `LITELLM_MODEL`              | Modelo para tasks com `effort=low`              |
 | `SQUIRE_MODEL_MEDIUM`   | igual a `LITELLM_MODEL`              | Modelo para tasks com `effort=medium`           |
 | `SQUIRE_MODEL_HIGH`     | igual a `LITELLM_MODEL`              | Modelo para tasks com `effort=high`             |
@@ -172,9 +176,17 @@ Contadores agregados do dia. Auto-resetado quando o dia UTC vira.
   "daily_calls_unknown_cost": 0,
   "projects_touched_today": ["squire-dashboard"],
   "tasks_completed_today": 4,
-  "approval_first_try_rate": 0.75
+  "tasks_homologated_today": 4,
+  "tasks_approved_first_try_today": 3,
+  "approval_first_try_rate": 75.0
 }
 ```
+
+`approval_first_try_rate` é o percentual (0–100) de tasks aprovadas na
+1ª homologação dentre as homologadas hoje (`tasks_approved_first_try_today
+/ tasks_homologated_today`). Tasks com `skip_homologation` contam em
+`tasks_completed_today` mas ficam de fora da taxa — são auto-aprovadas e
+inflariam o número.
 
 Reset com `squire budget reset`.
 
@@ -186,7 +198,10 @@ budget per-task excedido, lock corrompido.
 
 ### `.env.example` (na raiz do repo)
 
-Template de env vars para você copiar para `.env`:
+Template de env vars para você copiar para `.env`. O wrapper bash `squire`
+faz `source .env` automaticamente na inicialização; use exports guardados
+(`export VAR="${VAR:-valor}"`) para que variáveis já exportadas no shell
+tenham precedência sobre o arquivo:
 
 ```bash
 # Obrigatório
@@ -227,7 +242,7 @@ Em produção (no Unraid), o `STATE_ROOT` típico é `/mnt/user/data/squire/`
 
 ## Tabela de preços
 
-A tabela `MODEL_PRICING_PER_1M` em [`config.py:73`](../config.py) mapeia
+A tabela `MODEL_PRICING_PER_1M` em [`config.py:111`](../config.py) mapeia
 nomes de modelo para `(USD/1M input tokens, USD/1M output tokens)`. Valores
 default refletem a tabela pública da Anthropic em 2026-Q1:
 

@@ -7,6 +7,10 @@ set -euo pipefail
 # Resolve o diretório real do script (segue symlinks)
 SQUIRE_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 SQUIRE_VENV="$SQUIRE_DIR/.venv/bin/python"
+
+# Carrega .env local (usa exports guardados: env já exportado tem precedência)
+[[ -f "$SQUIRE_DIR/.env" ]] && source "$SQUIRE_DIR/.env"
+
 SQUIRE_STATE_ROOT="${SQUIRE_STATE_ROOT:-/home/ai-debian/squire-state}"
 SQUIRE_LOG="/tmp/squire.log"
 LOCK_FILE="$SQUIRE_STATE_ROOT/session.lock"
@@ -644,6 +648,16 @@ cmd_tasks() {
     esac
 }
 
+cmd_alerts() {
+    SQUIRE_STATE_ROOT="$SQUIRE_STATE_ROOT" \
+        "$SQUIRE_VENV" -u "$SQUIRE_DIR/alerts_cli.py" "$@"
+}
+
+cmd_doctor() {
+    SQUIRE_STATE_ROOT="$SQUIRE_STATE_ROOT" \
+        "$SQUIRE_VENV" -u "$SQUIRE_DIR/doctor.py" "$@"
+}
+
 cmd_help() {
     bold "squire — CLI"
     echo ""
@@ -673,6 +687,10 @@ cmd_help() {
     echo -e "  ${CYAN}squire projects${RESET}            Lista projetos disponíveis"
     echo -e "  ${CYAN}squire new${RESET} <projeto>              Cria projeto novo"
     echo -e "  ${CYAN}squire new${RESET} <projeto> --repo <path> --name <nome> --stack <csv> --backend <aider|litellm>"
+    echo -e "  ${CYAN}squire doctor${RESET} [--fix]     Health check do ambiente (--fix limpa locks mortos)"
+    echo -e "  ${CYAN}squire alerts${RESET}              Lista alertas pendentes"
+    echo -e "  ${CYAN}squire alerts ack${RESET} <n>|--all [--project <id>] [--task <id>]  Reconhece alertas"
+    echo -e "  ${CYAN}squire alerts rm${RESET}  <n>|--acked|--all   Remove alertas"
     echo -e "  ${CYAN}squire budget${RESET}              Mostra gasto USD hoje + budget configurado"
     echo -e "  ${CYAN}squire budget set${RESET} --daily X --per-task Y    Define limites USD"
     echo -e "  ${CYAN}squire budget reset${RESET}        Zera contadores diários"
@@ -706,6 +724,8 @@ case "$CMD" in
     projects) cmd_projects ;;
     new)      cmd_new "$@" ;;
     tasks)    cmd_tasks "$@" ;;
+    alerts)   cmd_alerts "$@" ;;
+    doctor)   cmd_doctor "$@" ;;
     budget)   cmd_budget "$@" ;;
     help|-h|--help) cmd_help ;;
     *)

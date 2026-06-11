@@ -276,7 +276,7 @@ automatic commits:
 
 ### 1. Before each task (auto-snapshot)
 
-`_auto_snapshot_commit` ([`squire.py:156`](../../squire.py)) runs:
+`_auto_snapshot_commit` ([`squire.py:174`](../../squire.py)) runs:
 
 ```bash
 git add -A
@@ -290,7 +290,7 @@ lost.
 
 ### 2. After approved homologation (auto-commit of the task)
 
-`_commit_task_completion` ([`squire.py:205`](../../squire.py)):
+`_commit_task_completion` ([`squire.py:223`](../../squire.py)):
 
 ```bash
 git add -A
@@ -325,6 +325,14 @@ passed). Touches nothing beyond `session.lock`.
 $ squire unlock
 ✓ Lock removido.
 ```
+
+### `squire doctor --fix` — safe lock cleanup
+
+An alternative to `unlock` that only acts when provably safe: removes
+`session.lock` only if the recorded pid is dead, and the `llm.lock` file
+only if the flock is free (the residual file itself is harmless — the
+real lock is the flock, not the file's existence). Locks held by living
+processes are never removed.
 
 ### `squire kill` — kill process + lock
 
@@ -392,7 +400,7 @@ Para confirmar, digite exatamente: my-app foxtrot
 > Alpha, bravo, charlie... zulu. A random word from the NATO phonetic
 > alphabet is enough to prevent accidental `rm` from clipboard or shell
 > autocompletion — you have to read the prompt to know which word to
-> type. See [`squire.py:1179`](../../squire.py).
+> type. See [`squire.py:1266`](../../squire.py).
 
 ## Common scenarios
 

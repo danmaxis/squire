@@ -32,7 +32,7 @@ For each call (Claude Code or local backend), squire records:
   (e.g., opencode/crush CLI)
 
 These fields live in the `TokenUsage` struct
-([`models.py:270`](../../models.py)).
+([`models.py:273`](../../models.py)).
 
 Accounting is centralized in `Squire._account_call`
 ([`squire.py:102`](../../squire.py)) which:
@@ -49,7 +49,7 @@ And `RateLimiter.record_call(cost_usd=…)`
 
 ## Price table
 
-In `MODEL_PRICING_PER_1M` ([`config.py:73`](../../config.py)):
+In `MODEL_PRICING_PER_1M` ([`config.py:111`](../../config.py)):
 
 | Model                | Input ($/1M)  | Output ($/1M) |
 | -------------------- | ------------- | ------------- |
