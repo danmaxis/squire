@@ -1,7 +1,10 @@
 # CLAUDE.md — Squire Dashboard
 
 Dashboard Next.js 14 (App Router) que visualiza em tempo real o estado do squire.
-Lê arquivos JSON do filesystem. Deploy como container Docker no Unraid.
+Lê arquivos JSON do filesystem (e escreve ack/dismiss de alertas via POST API).
+Deploy como container Docker **na VM Ai-Debian** via `docker compose up -d`
+(porta 3101, volume rw de /home/ai-debian/squire-state, user 1000:1000) —
+não no Unraid, que não enxerga o disco local da VM.
 
 ## Stack
 - Next.js 14 App Router + TypeScript 5 + Tailwind CSS 3
