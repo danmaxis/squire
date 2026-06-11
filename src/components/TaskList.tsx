@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { authedFetch } from '@/lib/clientApi';
 import { Task } from '@/lib/types';
 
 interface TaskListProps {
@@ -44,7 +45,7 @@ function TaskActionsMenu({
     setPending(action);
     setError(null);
     try {
-      const res = await fetch(
+      const res = await authedFetch(
         `/api/projects/${projectId}/tasks/${task.id}/action`,
         {
           method: 'POST',

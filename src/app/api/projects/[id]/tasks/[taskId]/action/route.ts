@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { readJson, writeJsonAtomic } from '@/lib/atomic';
+import { requireWriteToken } from '@/lib/auth';
 import { tasksPath } from '@/lib/squireStatePath';
 import { readSessionLock } from '@/lib/squireLock';
 import type { TaskList, Task } from '@/lib/types';
@@ -42,6 +43,9 @@ export async function POST(
   req: NextRequest,
   { params }: { params: { id: string; taskId: string } }
 ) {
+  const denied = requireWriteToken(req);
+  if (denied) return denied;
+
   const { id: projectId, taskId } = params;
 
   const lock = await readSessionLock();

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { readJson, writeJsonAtomic } from '@/lib/atomic';
+import { requireWriteToken } from '@/lib/auth';
 import { checkpointPath } from '@/lib/squireStatePath';
 import { readSessionLock } from '@/lib/squireLock';
 import type { Checkpoint } from '@/lib/types';
@@ -13,6 +14,9 @@ export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const denied = requireWriteToken(req);
+  if (denied) return denied;
+
   const lock = await readSessionLock();
   if (lock.held && lock.holder?.includes(params.id)) {
     return NextResponse.json(
