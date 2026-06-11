@@ -101,6 +101,11 @@ Claude estava rejeitando.
   $ squire reset my-app task-007    # descarta código + reseta
   ```
 - Se foi cap USD: aumente o cap na task ou globalmente e desbloqueie.
+- Depois de resolver, reconheça o alerta correspondente:
+  ```bash
+  $ squire alerts list
+  $ squire alerts ack --project my-app --task task-007
+  ```
 
 ## OpenCode escolheu o agente errado
 
