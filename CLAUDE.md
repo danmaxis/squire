@@ -33,13 +33,15 @@ arquivos JSON do filesystem. É o projeto se observando nascer.
 - É onde o Claude Code opera e onde o squire executa
 - Tem acesso ao filesystem do Unraid via mount
 
-### LLM local — Qwen via LiteLLM
-- **llama.cpp** roda no Zordon com o modelo `Qwen3.5-35B-A3B-Q4_K_M`
-- **LiteLLM** é o API gateway: `http://192.168.50.24:4000/v1`
-- **Model alias**: `journal-synth` (aponta pro Qwen)
-- **API key**: `sk-local` (placeholder, LiteLLM local não exige auth real)
-- **Flags do llama.cpp**: `-fa on -ctk q8_0 -ctv q8_0 -ngl all --reasoning-budget -1 --cache-reuse 256`
-- **Performance**: ~124 tok/s com reasoning_content visível
+### LLM local — Qwen via Ollama
+- **Ollama** roda no Zordon servindo o modelo `journal-synth:latest`
+  (Qwen3.5-35B-A3B, IQ4_NL, `num_ctx 98304`)
+- **Endpoint OpenAI-compatible**: `http://192.168.50.24:11434/v1`
+- **API key**: `ollama` (placeholder, Ollama não exige auth)
+- A configuração local fica em `.env` na raiz do repo (gitignored), que o
+  wrapper `squire` carrega automaticamente
+- Histórico: antes era um gateway LiteLLM na porta 4000 sobre llama.cpp
+  (desativado em 2026-06)
 
 ### Filesystem de estado
 ```
@@ -266,10 +268,10 @@ squire-dashboard/
 
 ### Squire (Python)
 ```bash
-SQUIRE_STATE_ROOT=/mnt/user/data/squire
-SQUIRE_LITELLM_URL=http://192.168.50.24:4000/v1
-SQUIRE_LITELLM_MODEL=journal-synth
-SQUIRE_LITELLM_KEY=sk-local
+SQUIRE_STATE_ROOT=/home/ai-debian/squire-state
+SQUIRE_LITELLM_URL=http://192.168.50.24:11434/v1
+SQUIRE_LITELLM_MODEL=journal-synth:latest
+SQUIRE_LITELLM_KEY=ollama
 SQUIRE_INNER_MAX_ATTEMPTS=10
 SQUIRE_INNER_TIMEOUT=300
 SQUIRE_CLAUDE_BIN=claude

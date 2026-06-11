@@ -7,6 +7,10 @@ set -euo pipefail
 # Resolve o diretório real do script (segue symlinks)
 SQUIRE_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 SQUIRE_VENV="$SQUIRE_DIR/.venv/bin/python"
+
+# Carrega .env local (usa exports guardados: env já exportado tem precedência)
+[[ -f "$SQUIRE_DIR/.env" ]] && source "$SQUIRE_DIR/.env"
+
 SQUIRE_STATE_ROOT="${SQUIRE_STATE_ROOT:-/home/ai-debian/squire-state}"
 SQUIRE_LOG="/tmp/squire.log"
 LOCK_FILE="$SQUIRE_STATE_ROOT/session.lock"

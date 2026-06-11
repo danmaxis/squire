@@ -44,13 +44,17 @@ Todas começam com `SQUIRE_`. Source: [`config.py`](../config.py).
 > um default razoável (`/home/ai-debian/squire-state`) antes de delegar para
 > o Python.
 
-### LLM local (LiteLLM / llama.cpp)
+### LLM local (endpoint OpenAI-compatible)
+
+Qualquer endpoint OpenAI-compatible serve: LiteLLM gateway, **Ollama**
+(`/v1`), llama.cpp server. No setup atual, é o Ollama no Zordon
+(`http://192.168.50.24:11434/v1`) servindo `journal-synth:latest`.
 
 | Variável                | Default                              | Efeito                                          |
 | ----------------------- | ------------------------------------ | ----------------------------------------------- |
-| `SQUIRE_LITELLM_URL`    | `http://localhost:4000/v1`           | Base URL do LiteLLM gateway                     |
-| `SQUIRE_LITELLM_MODEL`  | `journal-synth`                      | Modelo default (alias do LiteLLM)               |
-| `SQUIRE_LITELLM_KEY`    | `sk-local`                           | API key (placeholder local — LiteLLM não exige) |
+| `SQUIRE_LITELLM_URL`    | `http://localhost:4000/v1`           | Base URL do endpoint OpenAI-compatible          |
+| `SQUIRE_LITELLM_MODEL`  | `journal-synth`                      | Modelo default (id/alias no endpoint)           |
+| `SQUIRE_LITELLM_KEY`    | `sk-local`                           | API key (placeholder — endpoints locais não exigem) |
 | `SQUIRE_MODEL_LOW`      | igual a `LITELLM_MODEL`              | Modelo para tasks com `effort=low`              |
 | `SQUIRE_MODEL_MEDIUM`   | igual a `LITELLM_MODEL`              | Modelo para tasks com `effort=medium`           |
 | `SQUIRE_MODEL_HIGH`     | igual a `LITELLM_MODEL`              | Modelo para tasks com `effort=high`             |
@@ -186,7 +190,10 @@ budget per-task excedido, lock corrompido.
 
 ### `.env.example` (na raiz do repo)
 
-Template de env vars para você copiar para `.env`:
+Template de env vars para você copiar para `.env`. O wrapper bash `squire`
+faz `source .env` automaticamente na inicialização; use exports guardados
+(`export VAR="${VAR:-valor}"`) para que variáveis já exportadas no shell
+tenham precedência sobre o arquivo:
 
 ```bash
 # Obrigatório
