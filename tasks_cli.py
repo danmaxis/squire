@@ -276,6 +276,19 @@ def _offer_spec_update(project_id: str, choice: Optional[bool] = None) -> None:
     cmd_spec_update(project_id)
 
 
+def _session_lock_alive() -> bool:
+    """True se há um session.lock com pid vivo."""
+    from models import SessionLock
+    lock = ckpt.load_model(config.SESSION_LOCK_FILE, SessionLock)
+    if lock is None or not lock.pid:
+        return False
+    try:
+        os.kill(lock.pid, 0)
+        return True
+    except (ProcessLookupError, PermissionError):
+        return False
+
+
 def _get_spec_path(project_id: str) -> "Path":
     """Retorna o caminho do SPEC.md do projeto (dentro do repo do projeto)."""
     from pathlib import Path
@@ -518,6 +531,15 @@ def cmd_plan(
         refine = False
         if spec is None:
             spec = False
+        # Não competir com uma sessão ativa pelo tasks.json (o squire grava
+        # de volta a cada transição e sobrescreveria o plano)
+        if _session_lock_alive():
+            print(
+                f"{RED}✗{RESET} Sessão squire ativa — plan --yes recusado para "
+                f"não disputar o tasks.json. Aguarde ou use 'squire kill'.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
     # Coletar descrição se não fornecida
     if not desc and not project.description:
