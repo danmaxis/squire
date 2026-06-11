@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { authedFetch } from '@/lib/clientApi';
+import TaskForm from './TaskForm';
 import { Task } from '@/lib/types';
 
 interface TaskListProps {
@@ -31,14 +32,35 @@ function TaskActionsMenu({
   task,
   projectId,
   onChanged,
+  onEdit,
 }: {
   task: Task;
   projectId: string;
   onChanged: () => void;
+  onEdit: (task: Task) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState<TaskAction | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const remove = async () => {
+    if (!window.confirm(`Excluir a task ${task.id} (${task.title})?`)) return;
+    setError(null);
+    try {
+      const res = await authedFetch(
+        `/api/projects/${projectId}/tasks/${task.id}`,
+        { method: 'DELETE' }
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message ?? body.error ?? 'request_failed');
+      }
+      setOpen(false);
+      onChanged();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
 
   const fire = async (action: TaskAction) => {
     if (!window.confirm(ACTION_LABELS[action].confirm)) return;
@@ -98,6 +120,24 @@ function TaskActionsMenu({
               {pending === action && '…'}
             </button>
           ))}
+          <div className="my-1 border-t border-gray-100" />
+          <button
+            onClick={() => {
+              setOpen(false);
+              onEdit(task);
+            }}
+            className="block w-full text-left px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
+            role="menuitem"
+          >
+            Editar task
+          </button>
+          <button
+            onClick={remove}
+            className="block w-full text-left px-3 py-1.5 text-sm text-red-600 hover:bg-red-50"
+            role="menuitem"
+          >
+            Excluir task
+          </button>
           {error && (
             <div className="px-3 py-1 text-xs text-red-700 border-t border-gray-100">
               {error}
@@ -150,6 +190,8 @@ const getHomologationLabel = (result: string | null) => {
 export default function TaskList({ tasks, projectId }: TaskListProps) {
   const router = useRouter();
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set());
+  const [formTask, setFormTask] = useState<Task | null>(null);
+  const [creating, setCreating] = useState(false);
 
   const toggleExpand = (taskId: string) => {
     const newExpanded = new Set(expandedTasks);
@@ -163,6 +205,26 @@ export default function TaskList({ tasks, projectId }: TaskListProps) {
 
   return (
     <div className="space-y-4">
+      {projectId && (
+        <div className="flex justify-end">
+          <button
+            onClick={() => setCreating(true)}
+            className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-500"
+          >
+            + Nova task
+          </button>
+        </div>
+      )}
+      {projectId && creating && (
+        <TaskForm projectId={projectId} onClose={() => setCreating(false)} />
+      )}
+      {projectId && formTask && (
+        <TaskForm
+          projectId={projectId}
+          task={formTask}
+          onClose={() => setFormTask(null)}
+        />
+      )}
       {tasks.map((task, index) => (
         <div
           key={task.id}
@@ -253,6 +315,7 @@ export default function TaskList({ tasks, projectId }: TaskListProps) {
                   task={task}
                   projectId={projectId}
                   onChanged={() => router.refresh()}
+                  onEdit={(t) => setFormTask(t)}
                 />
               )}
             </div>

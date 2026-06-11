@@ -5,6 +5,7 @@ import TaskList from '@/components/TaskList';
 import { Timeline } from '@/components/Timeline';
 import { CommitLog } from '@/components/CommitLog';
 import { CheckpointPanel } from '@/components/CheckpointPanel';
+import ProjectSettings from '@/components/ProjectSettings';
 import { TDDProgressBar } from '@/components/TDDProgressBar';
 import { RefreshController } from '@/components/RefreshController';
 import type { ProjectStatus } from '@/lib/types';
@@ -118,6 +119,9 @@ export default async function ProjectPage({ params }: { params: { id: string } }
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Commits</h2>
           <CommitLog commits={commits} />
         </div>
+
+        {/* Configurações */}
+        <ProjectSettings project={project} />
 
       </div>
     </div>
