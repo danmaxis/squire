@@ -129,6 +129,38 @@ class Squire:
             task.cost_usd = float(task.cost_usd or 0.0) + cost
         return cost
 
+    def _review_with_infra_retry(self, task, test_hashes):
+        """
+        Chama o review do homologador com um retry gratuito para falhas de
+        infra (parse error, timeout, stdout vazio) — a rodada de homologação
+        não é consumida pelo retry, só pelo veredito. Cada chamada real é
+        contabilizada individualmente (custo + rate limit).
+        """
+        result = None
+        for attempt in range(2):
+            result = self.homologator.review(
+                task=task,
+                context=self.cp.llm_context,
+                attempt=task.homologation_attempt,
+                test_hashes=test_hashes,
+            )
+            cost = self._account_call(result.usage, task=task, cc_call=True)
+            self.rate_limiter.record_call(cost_usd=cost)
+            self.stats.daily_claude_code_calls += 1
+            self.session_cc_calls += 1
+
+            if (
+                result.error
+                and getattr(result, "error_kind", None) == "infra"
+                and attempt == 0
+                and self.rate_limiter.can_afford(config.ESTIMATED_CALL_COST_USD)
+            ):
+                log(f"Falha de infra na homologação ({result.error}) — retry gratuito 1/1", "warn")
+                time.sleep(10)
+                continue
+            return result
+        return result
+
     def _record_completion_stats(self, task) -> None:
         """
         Atualiza contadores diários após uma task concluída, incluindo a
@@ -951,16 +983,7 @@ class Squire:
                 self._wait_productively(task, last_feedback, test_hashes=test_hashes)
                 continue
 
-            result = self.homologator.review(
-                task=task,
-                context=self.cp.llm_context,
-                attempt=task.homologation_attempt,
-                test_hashes=test_hashes,
-            )
-            cost = self._account_call(result.usage, task=task, cc_call=True)
-            self.rate_limiter.record_call(cost_usd=cost)
-            self.stats.daily_claude_code_calls += 1
-            self.session_cc_calls += 1
+            result = self._review_with_infra_retry(task, test_hashes)
 
             self._save_state()
 
@@ -971,6 +994,11 @@ class Squire:
                     task.homologation_attempt,
                     f"Erro: {result.error}", Actor.claude_code,
                 )
+                if result.error_kind == "config":
+                    # Erro de configuração não se resolve repetindo rodadas
+                    # (ex: binário ausente) — bloqueia a task imediatamente.
+                    log("Erro de configuração — abortando homologações desta task", "error")
+                    return False
                 continue
 
             verdict_log = result.summary or result.feedback[:100]
