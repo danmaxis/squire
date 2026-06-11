@@ -48,7 +48,7 @@ funcione.
 
 ## Tabela de preços
 
-Em `MODEL_PRICING_PER_1M` ([`config.py:73`](../config.py)):
+Em `MODEL_PRICING_PER_1M` ([`config.py:111`](../config.py)):
 
 | Modelo               | Input ($/1M)  | Output ($/1M) |
 | -------------------- | ------------- | ------------- |

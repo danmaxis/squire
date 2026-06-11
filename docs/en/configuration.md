@@ -35,13 +35,13 @@ All start with `SQUIRE_`. Source: [`config.py`](../../config.py).
 
 | Variable             | Default                          | Effect                                         |
 | -------------------- | -------------------------------- | ---------------------------------------------- |
-| `SQUIRE_STATE_ROOT`  | (required — no default)          | Root of persistent state (all JSONs)           |
+| `SQUIRE_STATE_ROOT`  | `/home/ai-debian/squire-state`   | Root of persistent state (all JSONs)           |
 
 > [!IMPORTANT]
-> `SQUIRE_STATE_ROOT` is the only required variable. If not set,
-> `import config` fails immediately. The `squire` bash script (CLI)
-> injects a reasonable default (`/home/ai-debian/squire-state`) before
-> delegating to Python.
+> No variable is required: `SQUIRE_STATE_ROOT` defaults to
+> `/home/ai-debian/squire-state` (same default the `squire` bash wrapper
+> uses). Set the env var to point state elsewhere — the test suite does
+> this (in `tests/conftest.py`) so it never touches real state.
 
 ### Local LLM (OpenAI-compatible endpoint)
 
@@ -233,7 +233,7 @@ In production (on Unraid), typical `STATE_ROOT` is `/mnt/user/data/squire/`
 
 ## Price table
 
-The `MODEL_PRICING_PER_1M` table in [`config.py:73`](../../config.py) maps
+The `MODEL_PRICING_PER_1M` table in [`config.py:111`](../../config.py) maps
 model names to `(USD/1M input tokens, USD/1M output tokens)`. Defaults
 reflect Anthropic's public pricing as of 2026-Q1:
 

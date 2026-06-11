@@ -49,7 +49,7 @@ And `RateLimiter.record_call(cost_usd=…)`
 
 ## Price table
 
-In `MODEL_PRICING_PER_1M` ([`config.py:73`](../../config.py)):
+In `MODEL_PRICING_PER_1M` ([`config.py:111`](../../config.py)):
 
 | Model                | Input ($/1M)  | Output ($/1M) |
 | -------------------- | ------------- | ------------- |
