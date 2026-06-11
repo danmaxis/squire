@@ -653,6 +653,11 @@ cmd_alerts() {
         "$SQUIRE_VENV" -u "$SQUIRE_DIR/alerts_cli.py" "$@"
 }
 
+cmd_doctor() {
+    SQUIRE_STATE_ROOT="$SQUIRE_STATE_ROOT" \
+        "$SQUIRE_VENV" -u "$SQUIRE_DIR/doctor.py" "$@"
+}
+
 cmd_help() {
     bold "squire — CLI"
     echo ""
@@ -682,6 +687,7 @@ cmd_help() {
     echo -e "  ${CYAN}squire projects${RESET}            Lista projetos disponíveis"
     echo -e "  ${CYAN}squire new${RESET} <projeto>              Cria projeto novo"
     echo -e "  ${CYAN}squire new${RESET} <projeto> --repo <path> --name <nome> --stack <csv> --backend <aider|litellm>"
+    echo -e "  ${CYAN}squire doctor${RESET} [--fix]     Health check do ambiente (--fix limpa locks mortos)"
     echo -e "  ${CYAN}squire alerts${RESET}              Lista alertas pendentes"
     echo -e "  ${CYAN}squire alerts ack${RESET} <n>|--all [--project <id>] [--task <id>]  Reconhece alertas"
     echo -e "  ${CYAN}squire alerts rm${RESET}  <n>|--acked|--all   Remove alertas"
@@ -719,6 +725,7 @@ case "$CMD" in
     new)      cmd_new "$@" ;;
     tasks)    cmd_tasks "$@" ;;
     alerts)   cmd_alerts "$@" ;;
+    doctor)   cmd_doctor "$@" ;;
     budget)   cmd_budget "$@" ;;
     help|-h|--help) cmd_help ;;
     *)

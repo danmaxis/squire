@@ -323,6 +323,14 @@ $ squire unlock
 ✓ Lock removido.
 ```
 
+### `squire doctor --fix` — limpeza segura de locks
+
+Alternativa ao `unlock` que só age quando é comprovadamente seguro:
+remove o `session.lock` apenas se o pid registrado está morto, e o
+arquivo `llm.lock` apenas se o flock está livre (o arquivo residual em
+si é inofensivo — o lock real é o flock, não a existência do arquivo).
+Locks de processos vivos nunca são removidos.
+
 ### `squire kill` — matar processo + lock
 
 Quando a sessão travou e não responde:

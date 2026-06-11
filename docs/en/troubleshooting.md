@@ -5,6 +5,12 @@
 Common problems + diagnosis + fix. Organized by observable symptom, not
 root cause.
 
+> **Start with doctor.** Before hunting the cause manually, run
+> `squire doctor` — it checks the LLM endpoint, binaries, locks, and
+> project sanity in one pass, and points at the fix command for the
+> problems it recognizes. `squire doctor --fix` cleans up provably
+> dead locks.
+
 ## Table of contents
 
 - ["Another session is active" on startup](#another-session-is-active-on-startup)

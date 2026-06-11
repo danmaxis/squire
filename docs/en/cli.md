@@ -12,7 +12,7 @@ there. For tasks, it delegates to `tasks_cli.py`.
 ## Table of contents
 
 - [Execution](#execution): `run` · `bg` · `resume` · `dry`
-- [Observation](#observation): `status` · `log`
+- [Observation](#observation): `status` · `log` · `doctor`
 - [Control](#control): `kill` · `unlock`
 - [Recovery](#recovery): `unblock` · `reset`
 - [Alerts](#alerts): `alerts list|ack|rm`
@@ -128,6 +128,37 @@ $ squire log
 [14:42:08] →   ┊→ ## Task: Add CommitLog component
 ...
 ```
+
+### `squire doctor [--fix]`
+
+Environment health check (delegated to `doctor.py`). Verifies everything
+a session needs to run and prints `[ OK ]/[WARN]/[FAIL]/[INFO]` per item.
+Exits with code 1 if there's any FAIL.
+
+Checks: writable state root · LLM endpoint reachable + configured models
+available · `claude` binary on PATH (+version) · binaries for backends in
+use (`opencode`/`crush`) · `session.lock` (pid alive? TTL expired?) ·
+`llm.lock` (flock held?) · per-project sanity (git repo, dirty working
+tree, blocked tasks, dead-but-resumable session) · pending alerts ·
+`global-stats.json` freshness.
+
+```bash
+$ squire doctor
+squire doctor
+
+Estado
+  [ OK ] state root  /home/ai-debian/squire-state
+
+LLM local
+  [ OK ] LLM endpoint  http://192.168.50.24:11434/v1
+  [ OK ] modelo 'journal-synth:latest'  disponível
+...
+10 ok · 1 warn · 0 fail
+```
+
+`--fix` applies only safe cleanups: removes a `session.lock` whose pid is
+provably dead and the `llm.lock` file when the flock is free. It never
+removes locks held by living processes.
 
 ## Control
 

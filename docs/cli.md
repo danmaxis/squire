@@ -12,7 +12,7 @@ no script bash `squire` (raiz do repo); cada subcomando é uma função
 ## Sumário
 
 - [Execução](#execução): `run` · `bg` · `resume` · `dry`
-- [Observação](#observação): `status` · `log`
+- [Observação](#observação): `status` · `log` · `doctor`
 - [Controle](#controle): `kill` · `unlock`
 - [Recuperação](#recuperação): `unblock` · `reset`
 - [Alertas](#alertas): `alerts list|ack|rm`
@@ -124,6 +124,37 @@ $ squire log
 [14:42:08] →   ┊→ ## Task: Add CommitLog component
 ...
 ```
+
+### `squire doctor [--fix]`
+
+Health check do ambiente (delegado para `doctor.py`). Verifica tudo que
+precisa estar de pé para uma sessão rodar e imprime `[ OK ]/[WARN]/[FAIL]/[INFO]`
+por item. Sai com código 1 se houver qualquer FAIL.
+
+Checks: state root gravável · endpoint do LLM acessível + modelos
+configurados disponíveis · binário `claude` no PATH (+versão) · binários
+dos backends em uso (`opencode`/`crush`) · `session.lock` (pid vivo? TTL
+expirado?) · `llm.lock` (flock em uso?) · sanidade por projeto (git repo,
+working tree sujo, tasks bloqueadas, sessão morta retomável) · alertas
+pendentes · frescor do `global-stats.json`.
+
+```bash
+$ squire doctor
+squire doctor
+
+Estado
+  [ OK ] state root  /home/ai-debian/squire-state
+
+LLM local
+  [ OK ] LLM endpoint  http://192.168.50.24:11434/v1
+  [ OK ] modelo 'journal-synth:latest'  disponível
+...
+10 ok · 1 warn · 0 fail
+```
+
+`--fix` aplica apenas limpezas seguras: remove `session.lock` cujo pid
+está comprovadamente morto e o arquivo `llm.lock` quando o flock está
+livre. Nunca remove locks de processos vivos.
 
 ## Controle
 
