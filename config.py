@@ -148,6 +148,23 @@ SESSION_LOCK_TTL_MINUTES = int(os.getenv("SQUIRE_LOCK_TTL", "60"))
 HEARTBEAT_INTERVAL_SECONDS = int(os.getenv("SQUIRE_HEARTBEAT", "300"))  # 5 min
 
 
+# ── Command queue (dashboard → agente host) ────────────────────────
+
+COMMANDS_DIR = STATE_ROOT / "commands"
+COMMANDS_PENDING = COMMANDS_DIR / "pending"
+COMMANDS_RUNNING = COMMANDS_DIR / "running"
+COMMANDS_DONE = COMMANDS_DIR / "done"
+
+# Resultados em done/ mais velhos que isto são apagados pelo agente
+COMMAND_RESULT_TTL_HOURS = int(os.getenv("SQUIRE_COMMAND_TTL_H", "24"))
+# Timeout de execução de um comando (plan_tasks pode demorar minutos)
+COMMAND_TIMEOUT_SECONDS = int(os.getenv("SQUIRE_COMMAND_TIMEOUT", "900"))
+# Intervalo de polling do agente
+AGENT_POLL_SECONDS = float(os.getenv("SQUIRE_AGENT_POLL", "2"))
+# Raiz permitida para repo_path de projetos criados via fila
+AGENT_REPO_ROOT = Path(os.getenv("SQUIRE_AGENT_REPO_ROOT", "/home/ai-debian/projects"))
+
+
 # ── Helpers ────────────────────────────────────────────────────────
 
 def project_dir(project_id: str) -> Path:

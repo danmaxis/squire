@@ -270,6 +270,49 @@ class GlobalStats(BaseModel):
     approval_first_try_rate: float = 0.0  # % aprovadas na 1ª homologação
 
 
+# ── Command queue (dashboard → agente host) ───────────────────────
+
+class CommandType(str, Enum):
+    """Whitelist de comandos que o agente host aceita executar."""
+    new_project = "new_project"
+    run = "run"
+    resume = "resume"
+    kill = "kill"
+    plan_tasks = "plan_tasks"
+    split_task = "split_task"
+
+
+class CommandStatus(str, Enum):
+    pending = "pending"
+    running = "running"
+    done = "done"
+    failed = "failed"
+
+
+class QueuedCommand(BaseModel):
+    """Comando enfileirado pelo dashboard em commands/pending/<id>.json."""
+    id: str
+    type: CommandType
+    project_id: Optional[str] = None  # None apenas para kill
+    args: dict = {}
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    requested_by: str = "dashboard"
+
+
+class CommandResult(BaseModel):
+    """Resultado escrito pelo agente em commands/done/<id>.json."""
+    id: str
+    type: CommandType
+    project_id: Optional[str] = None
+    status: CommandStatus
+    exit_code: Optional[int] = None
+    stdout_tail: str = ""
+    stderr_tail: str = ""
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    error: Optional[str] = None
+
+
 class TokenUsage(BaseModel):
     """Uso de tokens reportado por um backend após uma chamada.
 
