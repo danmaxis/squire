@@ -306,13 +306,19 @@ npm run dev
 ```
 
 ### Dashboard (produção)
+
+O container roda **na VM Ai-Debian** (não no Unraid: o estado em
+`/home/ai-debian/squire-state` fica no disco local da VM e o Unraid não
+o enxerga). Deploy via docker compose no próprio repo:
+
 ```bash
-docker build -t squire-dashboard .
-# Pedir ao Danilo para criar o container no Unraid com:
-#   - Imagem: squire-dashboard
-#   - Porta: 3100:3000
-#   - Volume: /home/ai-debian/squire-state:/data:ro
-#   - Env: SQUIRE_DATA_PATH=/data
+cd /home/ai-debian/squire-dashboard
+docker compose up -d --build
+# Porta: 3101:3000 (3100 está ocupada pelo browserless na VM)
+# Volume: /home/ai-debian/squire-state:/data (rw — o dashboard escreve
+#         ack/dismiss de alertas via POST /api/alerts/ack)
+# user: 1000:1000 (arquivos de estado são 0600 ai-debian)
+# URL: http://<ip-da-vm>:3101
 ```
 
 ## Notas para o Claude Code
