@@ -31,7 +31,7 @@ Para cada chamada (Claude Code ou backend local), o squire grava:
 - **`tokens_unknown`** — flag `true` quando o backend não reportou uso
   (ex: opencode/crush CLI)
 
-Esses campos vivem no struct `TokenUsage` ([`models.py:270`](../models.py)).
+Esses campos vivem no struct `TokenUsage` ([`models.py:273`](../models.py)).
 
 A contabilidade é centralizada em `Squire._account_call`
 ([`squire.py:102`](../squire.py)) que:

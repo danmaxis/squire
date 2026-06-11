@@ -129,6 +129,24 @@ class Squire:
             task.cost_usd = float(task.cost_usd or 0.0) + cost
         return cost
 
+    def _record_completion_stats(self, task) -> None:
+        """
+        Atualiza contadores diários após uma task concluída, incluindo a
+        taxa de aprovação na 1ª homologação. Tasks com skip_homologation
+        ficam de fora da taxa (são auto-aprovadas e inflariam o número).
+        """
+        self.stats.tasks_completed_today += 1
+        if task.skip_homologation:
+            return
+        self.stats.tasks_homologated_today += 1
+        if task.homologation_attempt == 1:
+            self.stats.tasks_approved_first_try_today += 1
+        self.stats.approval_first_try_rate = round(
+            100.0 * self.stats.tasks_approved_first_try_today
+            / max(1, self.stats.tasks_homologated_today),
+            1,
+        )
+
     def _task_budget_exceeded(self, task) -> bool:
         """True se o custo acumulado da task ultrapassou seu cap (Task.max_usd ou global)."""
         cap = task.max_usd if task.max_usd and task.max_usd > 0 else config.PER_TASK_USD_CAP
@@ -1115,7 +1133,7 @@ class Squire:
                     self._commit_task_completion(task)
                     task.status = TaskStatus.completed
                     task.completed_at = datetime.now(timezone.utc)
-                    self.stats.tasks_completed_today += 1
+                    self._record_completion_stats(task)
                     self._record_event(
                         EventType.task_completed, task.id,
                         summary=f"Aprovada na homologação #{task.homologation_attempt}",

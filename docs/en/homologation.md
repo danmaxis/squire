@@ -90,7 +90,7 @@ the inner loop with violations as feedback — without burning Claude
 budget.
 
 Implementation: `_pre_homologation_checks`
-([`squire.py:622`](../../squire.py)).
+([`squire.py:640`](../../squire.py)).
 
 ### Per-language
 
@@ -154,7 +154,7 @@ something else.
 ### Rejection loop
 
 `Task.rejection_summaries` keeps the last 10 rejection `summary`s.
-`_is_looping` ([`squire.py:348`](../../squire.py)) checks whether the
+`_is_looping` ([`squire.py:366`](../../squire.py)) checks whether the
 last N (default `SQUIRE_LOOP_DETECT=3`) rejections share 4+ significant
 words:
 
@@ -232,7 +232,7 @@ if `task.test_author=claude` (default), Claude writes the tests. See
 
 When rate limit activates between rounds (`can_afford` returns `False`),
 squire **does not sleep**. Instead, it calls `_wait_productively`
-([`squire.py:600`](../../squire.py)) which keeps running the inner
+([`squire.py:618`](../../squire.py)) which keeps running the inner
 loop with the accumulated last-rejection feedback:
 
 ```python

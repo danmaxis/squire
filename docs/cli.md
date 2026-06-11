@@ -400,7 +400,7 @@ Para confirmar, digite exatamente: my-api echo
 
 > **Insight:** o uso de palavra do alfabeto NATO (alpha, bravo, charlie, ...
 > zulu) evita `rm` acidental por copy-paste do histórico — você precisa ler
-> o prompt para saber qual palavra digitar. Veja [`squire.py:1179`](../squire.py).
+> o prompt para saber qual palavra digitar. Veja [`squire.py:1266`](../squire.py).
 
 ## Orçamento
 

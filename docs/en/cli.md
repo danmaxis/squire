@@ -389,7 +389,7 @@ Para confirmar, digite exatamente: my-api echo
 > **Insight:** using a NATO alphabet word (alpha, bravo, charlie, ...
 > zulu) prevents accidental `rm` from clipboard or shell history — you
 > have to read the prompt to know which word to type. See
-> [`squire.py:1179`](../../squire.py).
+> [`squire.py:1266`](../../squire.py).
 
 ## Budget
 

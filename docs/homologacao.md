@@ -89,7 +89,7 @@ Antes de gastar uma chamada Claude, o squire roda **verificações mecânicas
 locais** sobre o trabalho do LLM local. Se algo óbvio está errado, devolve
 para o inner loop com violations como feedback — sem queimar budget Claude.
 
-Implementação: `_pre_homologation_checks` ([`squire.py:622`](../squire.py)).
+Implementação: `_pre_homologation_checks` ([`squire.py:640`](../squire.py)).
 
 ### Por linguagem
 
@@ -153,7 +153,7 @@ sintoma de outra coisa.
 ### Loop de rejeição
 
 `Task.rejection_summaries` mantém as últimas 10 `summary` de rejeições.
-A função `_is_looping` ([`squire.py:348`](../squire.py)) verifica se as
+A função `_is_looping` ([`squire.py:366`](../squire.py)) verifica se as
 últimas N (default `SQUIRE_LOOP_DETECT=3`) rejeições compartilham 4+ palavras
 significativas:
 
@@ -230,7 +230,7 @@ Vale mencionar aqui porque também é uma chamada paga: na fase RED, se
 
 Quando o rate limit ativa entre rodadas (`can_afford` retorna `False`),
 o squire **não dorme**. Em vez disso, chama `_wait_productively`
-([`squire.py:600`](../squire.py)) que continua executando o inner loop
+([`squire.py:618`](../squire.py)) que continua executando o inner loop
 com o feedback acumulado da última rejeição:
 
 ```python

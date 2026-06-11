@@ -264,6 +264,9 @@ class GlobalStats(BaseModel):
     daily_calls_unknown_cost: int = 0
     projects_touched_today: list[str] = []
     tasks_completed_today: int = 0
+    # Contadores-base da taxa de aprovação (tasks com skip_homologation não contam)
+    tasks_homologated_today: int = 0
+    tasks_approved_first_try_today: int = 0
     approval_first_try_rate: float = 0.0  # % aprovadas na 1ª homologação
 
 

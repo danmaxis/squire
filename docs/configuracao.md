@@ -176,9 +176,17 @@ Contadores agregados do dia. Auto-resetado quando o dia UTC vira.
   "daily_calls_unknown_cost": 0,
   "projects_touched_today": ["squire-dashboard"],
   "tasks_completed_today": 4,
-  "approval_first_try_rate": 0.75
+  "tasks_homologated_today": 4,
+  "tasks_approved_first_try_today": 3,
+  "approval_first_try_rate": 75.0
 }
 ```
+
+`approval_first_try_rate` é o percentual (0–100) de tasks aprovadas na
+1ª homologação dentre as homologadas hoje (`tasks_approved_first_try_today
+/ tasks_homologated_today`). Tasks com `skip_homologation` contam em
+`tasks_completed_today` mas ficam de fora da taxa — são auto-aprovadas e
+inflariam o número.
 
 Reset com `squire budget reset`.
 
