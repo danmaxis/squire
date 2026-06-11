@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { authedFetch } from '@/lib/clientApi';
+import { useCommandPoll } from '@/hooks/useCommandPoll';
 import TaskForm from './TaskForm';
 import { Task } from '@/lib/types';
 
@@ -33,11 +34,13 @@ function TaskActionsMenu({
   projectId,
   onChanged,
   onEdit,
+  onSplit,
 }: {
   task: Task;
   projectId: string;
   onChanged: () => void;
   onEdit: (task: Task) => void;
+  onSplit: (task: Task) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState<TaskAction | null>(null);
@@ -132,6 +135,17 @@ function TaskActionsMenu({
             Editar task
           </button>
           <button
+            onClick={() => {
+              setOpen(false);
+              onSplit(task);
+            }}
+            className="block w-full text-left px-3 py-1.5 text-sm text-purple-700 hover:bg-purple-50"
+            role="menuitem"
+            title="Claude subdivide esta task em subtasks (via agente host)"
+          >
+            Dividir com Claude
+          </button>
+          <button
             onClick={remove}
             className="block w-full text-left px-3 py-1.5 text-sm text-red-600 hover:bg-red-50"
             role="menuitem"
@@ -192,6 +206,46 @@ export default function TaskList({ tasks, projectId }: TaskListProps) {
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set());
   const [formTask, setFormTask] = useState<Task | null>(null);
   const [creating, setCreating] = useState(false);
+  const [splitCmdId, setSplitCmdId] = useState<string | null>(null);
+  const [splitError, setSplitError] = useState<string | null>(null);
+  const splitPoll = useCommandPoll(splitCmdId);
+
+  useEffect(() => {
+    if (splitPoll.phase === 'done') {
+      setSplitCmdId(null);
+      router.refresh();
+    }
+    if (splitPoll.phase === 'failed' || splitPoll.phase === 'timeout') {
+      setSplitError(
+        splitPoll.result?.stderr_tail || splitPoll.error || 'split falhou'
+      );
+      setSplitCmdId(null);
+    }
+  }, [splitPoll.phase, splitPoll.error, splitPoll.result, router]);
+
+  const startSplit = async (task: Task) => {
+    if (!projectId) return;
+    setSplitError(null);
+    try {
+      const res = await authedFetch('/api/commands', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'split_task',
+          project_id: projectId,
+          args: { task_id: task.id },
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message ?? body.error ?? 'request_failed');
+      }
+      const { id } = await res.json();
+      setSplitCmdId(id);
+    } catch (e) {
+      setSplitError((e as Error).message);
+    }
+  };
 
   const toggleExpand = (taskId: string) => {
     const newExpanded = new Set(expandedTasks);
@@ -206,7 +260,15 @@ export default function TaskList({ tasks, projectId }: TaskListProps) {
   return (
     <div className="space-y-4">
       {projectId && (
-        <div className="flex justify-end">
+        <div className="flex items-center justify-end gap-3">
+          {splitCmdId && (
+            <span className="text-xs text-purple-600">
+              Claude dividindo a task… (~1 min)
+            </span>
+          )}
+          {splitError && (
+            <span className="text-xs text-red-600">{splitError}</span>
+          )}
           <button
             onClick={() => setCreating(true)}
             className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-500"
@@ -316,6 +378,7 @@ export default function TaskList({ tasks, projectId }: TaskListProps) {
                   projectId={projectId}
                   onChanged={() => router.refresh()}
                   onEdit={(t) => setFormTask(t)}
+                  onSplit={startSplit}
                 />
               )}
             </div>

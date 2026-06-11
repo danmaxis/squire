@@ -109,8 +109,16 @@ export function SidebarShell({ projects }: SidebarShellProps) {
         </div>
 
         <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
-          <div className="px-3 mb-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">
-            Projetos
+          <div className="px-3 mb-2 flex items-center justify-between text-xs font-semibold text-gray-400 uppercase tracking-wider">
+            <span>Projetos</span>
+            <Link
+              href="/projects/new"
+              onClick={closeOnMobile}
+              className="rounded px-1.5 py-0.5 text-blue-500 normal-case hover:bg-blue-50"
+              title="Novo projeto"
+            >
+              + Novo
+            </Link>
           </div>
 
           {projects.length === 0 && (

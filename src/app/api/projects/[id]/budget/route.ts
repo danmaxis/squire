@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { readJson, writeJsonAtomic } from '@/lib/atomic';
 import { requireWriteToken } from '@/lib/auth';
 import { checkpointPath } from '@/lib/squireStatePath';
-import { readSessionLock } from '@/lib/squireLock';
+import { lockBlocksProject, readSessionLock } from '@/lib/squireLock';
 import type { Checkpoint } from '@/lib/types';
 
 interface BudgetBody {
@@ -18,7 +18,7 @@ export async function POST(
   if (denied) return denied;
 
   const lock = await readSessionLock();
-  if (lock.held && lock.holder?.includes(params.id)) {
+  if (lockBlocksProject(lock, params.id)) {
     return NextResponse.json(
       {
         error: 'squire_running',

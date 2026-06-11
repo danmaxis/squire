@@ -3,7 +3,7 @@ import { readJson, writeJsonAtomic } from '@/lib/atomic';
 import { requireWriteToken } from '@/lib/auth';
 import { newTask, nextTaskId, EFFORTS, TEST_AUTHORS } from '@/lib/taskDefaults';
 import { tasksPath } from '@/lib/squireStatePath';
-import { readSessionLock } from '@/lib/squireLock';
+import { lockBlocksProject, readSessionLock } from '@/lib/squireLock';
 import type { TaskList } from '@/lib/types';
 
 interface CreateTaskBody {
@@ -27,7 +27,7 @@ export async function POST(
   if (denied) return denied;
 
   const lock = await readSessionLock();
-  if (lock.held && lock.holder?.includes(params.id)) {
+  if (lockBlocksProject(lock, params.id)) {
     return NextResponse.json(
       {
         error: 'squire_running',

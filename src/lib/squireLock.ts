@@ -7,6 +7,7 @@ const DATA_PATH =
 
 interface SessionLockJson {
   holder: string;
+  project_id?: string | null;
   acquired_at: string;
   ttl_minutes: number;
   pid: number;
@@ -16,6 +17,8 @@ export interface LockStatus {
   /** True when a fresh lock file (mtime + TTL window) exists. */
   held: boolean;
   holder: string | null;
+  /** Projeto sendo executado pela sessão (campo estruturado do lock). */
+  projectId: string | null;
   pid: number | null;
   acquiredAt: string | null;
   /** Seconds since the lock file was last modified. null when no lock. */
@@ -32,16 +35,25 @@ export interface LockStatus {
  */
 export async function readSessionLock(): Promise<LockStatus> {
   const path = join(DATA_PATH, 'session.lock');
+  const empty: LockStatus = {
+    held: false,
+    holder: null,
+    projectId: null,
+    pid: null,
+    acquiredAt: null,
+    ageSeconds: null,
+  };
+
   let stat;
   try {
     stat = await fs.stat(path);
   } catch {
-    return { held: false, holder: null, pid: null, acquiredAt: null, ageSeconds: null };
+    return empty;
   }
 
   const data = await readJson<SessionLockJson>(path);
   if (!data) {
-    return { held: false, holder: null, pid: null, acquiredAt: null, ageSeconds: null };
+    return empty;
   }
 
   const ageSeconds = (Date.now() - stat.mtimeMs) / 1000;
@@ -51,8 +63,21 @@ export async function readSessionLock(): Promise<LockStatus> {
   return {
     held,
     holder: data.holder ?? null,
+    projectId: data.project_id ?? null,
     pid: data.pid ?? null,
     acquiredAt: data.acquired_at ?? null,
     ageSeconds,
   };
+}
+
+/**
+ * O lock bloqueia escritas neste projeto? Escritas em arquivos de OUTRO
+ * projeto são seguras — o squire só grava os arquivos do projeto que está
+ * executando. Locks antigos sem project_id estruturado bloqueiam por
+ * precaução.
+ */
+export function lockBlocksProject(lock: LockStatus, projectId: string): boolean {
+  if (!lock.held) return false;
+  if (lock.projectId == null) return true; // lock antigo sem campo — conservador
+  return lock.projectId === projectId;
 }

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { readJson, writeJsonAtomic } from '@/lib/atomic';
 import { requireWriteToken } from '@/lib/auth';
 import { projectJsonPath } from '@/lib/squireStatePath';
-import { readSessionLock } from '@/lib/squireLock';
+import { lockBlocksProject, readSessionLock } from '@/lib/squireLock';
 import type { Project, ProjectStatus } from '@/lib/types';
 
 const PROJECT_STATUSES: ProjectStatus[] = [
@@ -30,7 +30,7 @@ export async function PATCH(
   if (denied) return denied;
 
   const lock = await readSessionLock();
-  if (lock.held && lock.holder?.includes(params.id)) {
+  if (lockBlocksProject(lock, params.id)) {
     return NextResponse.json(
       {
         error: 'squire_running',
