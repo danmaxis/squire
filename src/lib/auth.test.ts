@@ -42,3 +42,23 @@ describe('requireWriteToken', () => {
     expect(requireWriteToken(req('segredo'))).toBeNull();
   });
 });
+
+describe('authedFetch 503', () => {
+  it('reescreve writes_disabled com mensagem acionável', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: 'writes_disabled' }), {
+          status: 503,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      )
+    );
+    const { authedFetch } = await import('./clientApi');
+    const res = await authedFetch('/api/test', { method: 'POST' });
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.message).toContain('DASHBOARD_WRITE_TOKEN');
+    vi.unstubAllGlobals();
+  });
+});

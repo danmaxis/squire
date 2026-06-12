@@ -1,5 +1,6 @@
 import { timingSafeEqual } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
+import { lockBlocksProject, readSessionLock } from './squireLock';
 
 /**
  * Gate de escrita por token compartilhado.
@@ -33,6 +34,33 @@ export function requireWriteToken(req: NextRequest): NextResponse | null {
 
   if (!valid) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  }
+  return null;
+}
+
+/**
+ * Guard composto para rotas que mutam estado de um projeto:
+ * token válido (401/503) + sessão squire não pode estar executando o
+ * projeto (409). Retorna null quando a escrita pode prosseguir.
+ */
+export async function guardProjectWrite(
+  req: NextRequest,
+  projectId: string
+): Promise<NextResponse | null> {
+  const denied = requireWriteToken(req);
+  if (denied) return denied;
+
+  const lock = await readSessionLock();
+  if (lockBlocksProject(lock, projectId)) {
+    return NextResponse.json(
+      {
+        error: 'squire_running',
+        message: `Squire está executando ${projectId} (holder=${lock.holder}) — espere a sessão terminar.`,
+        holder: lock.holder,
+        pid: lock.pid,
+      },
+      { status: 409 }
+    );
   }
   return null;
 }

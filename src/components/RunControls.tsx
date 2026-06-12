@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Play, RotateCcw, Square } from 'lucide-react';
-import { authedFetch } from '@/lib/clientApi';
+import { enqueueCommand } from '@/lib/clientApi';
 import { useCommandPoll } from '@/hooks/useCommandPoll';
 import type { LockStatus } from '@/lib/squireLock';
 
@@ -27,19 +27,7 @@ export default function RunControls({ projectId, lock }: RunControlsProps) {
     }
     setError(null);
     try {
-      const res = await authedFetch('/api/commands', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type,
-          project_id: type === 'kill' ? undefined : projectId,
-        }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.message ?? body.error ?? 'request_failed');
-      }
-      const { id } = await res.json();
+      const id = await enqueueCommand(type, type === 'kill' ? null : projectId);
       setCommandId(id);
     } catch (e) {
       setError((e as Error).message);
@@ -91,11 +79,11 @@ export default function RunControls({ projectId, lock }: RunControlsProps) {
         <Square className="h-3.5 w-3.5" /> Kill
       </button>
       {busy && (
-        <span className="text-xs text-blue-600">
+        <span className="text-xs text-blue-600 dark:text-blue-400">
           {poll.phase === 'pending' ? 'aguardando agente…' : 'executando…'}
         </span>
       )}
-      {error && <span className="text-xs text-red-600">{error}</span>}
+      {error && <span className="text-xs text-red-600 dark:text-red-400">{error}</span>}
     </div>
   );
 }

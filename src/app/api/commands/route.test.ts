@@ -99,3 +99,49 @@ describe('POST /api/commands', () => {
     expect(res.status).toBe(202);
   });
 });
+
+describe('POST /api/commands — fix_task', () => {
+  let dataDir: string;
+  let route: typeof import('./route');
+
+  beforeEach(async () => {
+    dataDir = mkdtempSync(join(tmpdir(), 'squire-dash-test-'));
+    vi.stubEnv('SQUIRE_DATA_PATH', dataDir);
+    vi.stubEnv('DASHBOARD_WRITE_TOKEN', TOKEN);
+    vi.resetModules();
+    route = await import('./route');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  it('enfileira fix_task válido', async () => {
+    const res = await route.POST(
+      post({ type: 'fix_task', project_id: 'proj', args: { task_id: 'task-009' } })
+    );
+    expect(res.status).toBe(202);
+  });
+
+  it('400 sem task_id', async () => {
+    const res = await route.POST(post({ type: 'fix_task', project_id: 'proj' }));
+    expect(res.status).toBe(400);
+  });
+
+  it('409 com sessão ativa (fix segura o lock)', async () => {
+    writeFileSync(
+      join(dataDir, 'session.lock'),
+      JSON.stringify({
+        holder: 'sess-x',
+        acquired_at: new Date().toISOString(),
+        ttl_minutes: 60,
+        pid: process.pid,
+      })
+    );
+    const res = await route.POST(
+      post({ type: 'fix_task', project_id: 'proj', args: { task_id: 'task-009' } })
+    );
+    expect(res.status).toBe(409);
+  });
+});

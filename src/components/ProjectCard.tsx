@@ -4,9 +4,11 @@ interface ProjectCardProps {
   id: string;
   name: string;
   description: string;
-  status: 'active' | 'completed' | 'on-hold' | 'failed';
+  status: 'active' | 'completed' | 'on-hold' | 'failed' | 'blocked';
   completedTasks: number;
   totalTasks: number;
+  /** Tasks bloqueadas — badge vermelho quando > 0. */
+  blockedTasks?: number;
   lastUpdated: Date;
 }
 
@@ -18,6 +20,7 @@ const getStatusColor = (status: ProjectCardProps['status']) => {
       return 'bg-blue-100 text-blue-800 border-blue-200';
     case 'on-hold':
       return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+    case 'blocked':
     case 'failed':
       return 'bg-red-100 text-red-800 border-red-200';
     default:
@@ -30,6 +33,7 @@ const getStatusLabel = (status: ProjectCardProps['status']) => {
     case 'active': return 'Ativo';
     case 'completed': return 'Concluído';
     case 'on-hold': return 'Pausado';
+    case 'blocked': return 'Bloqueado';
     case 'failed': return 'Falhou';
     default: return 'Desconhecido';
   }
@@ -51,6 +55,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
   status,
   completedTasks,
   totalTasks,
+  blockedTasks = 0,
   lastUpdated,
 }) => {
   const progressPercentage = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
@@ -66,10 +71,20 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
         <h3 className="text-lg font-semibold text-gray-900 truncate pr-2" title={name}>
           {name}
         </h3>
-        <span
-          className={`px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusColor(status)}`}
-        >
-          {getStatusLabel(status)}
+        <span className="flex items-center gap-1.5">
+          {blockedTasks > 0 && (
+            <span
+              className="px-2 py-0.5 rounded-full text-xs font-medium border bg-red-100 text-red-800 border-red-200"
+              title="Tasks bloqueadas aguardando triagem"
+            >
+              {blockedTasks} bloqueada{blockedTasks > 1 ? 's' : ''}
+            </span>
+          )}
+          <span
+            className={`px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusColor(status)}`}
+          >
+            {getStatusLabel(status)}
+          </span>
         </span>
       </div>
 

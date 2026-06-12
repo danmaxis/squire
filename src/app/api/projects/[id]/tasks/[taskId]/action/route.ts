@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { readJson, writeJsonAtomic } from '@/lib/atomic';
-import { requireWriteToken } from '@/lib/auth';
+import { guardProjectWrite } from '@/lib/auth';
 import { tasksPath } from '@/lib/squireStatePath';
-import { lockBlocksProject, readSessionLock } from '@/lib/squireLock';
 import type { TaskList, Task } from '@/lib/types';
 
 type ActionKind = 'retry' | 'approve' | 'skip';
@@ -43,23 +42,10 @@ export async function POST(
   req: NextRequest,
   { params }: { params: { id: string; taskId: string } }
 ) {
-  const denied = requireWriteToken(req);
-  if (denied) return denied;
-
   const { id: projectId, taskId } = params;
 
-  const lock = await readSessionLock();
-  if (lockBlocksProject(lock, projectId)) {
-    return NextResponse.json(
-      {
-        error: 'squire_running',
-        message: `Squire está ativamente executando ${projectId} (holder=${lock.holder}). Espere a sessão terminar.`,
-        holder: lock.holder,
-        pid: lock.pid,
-      },
-      { status: 409 }
-    );
-  }
+  const denied = await guardProjectWrite(req, projectId);
+  if (denied) return denied;
 
   let body: ActionBody;
   try {

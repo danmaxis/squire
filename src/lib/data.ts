@@ -1,5 +1,6 @@
 import { promises as fs } from 'fs';
 import { join } from 'path';
+import { DATA_PATH } from './squireStatePath';
 import { newTask } from './taskDefaults';
 import type {
   Project,
@@ -13,10 +14,9 @@ import type {
   TaskList,
   History,
   CommitLog,
+  HomologationLog,
+  HomologationLogEntry,
 } from './types';
-
-const DATA_PATH =
-  process.env.SQUIRE_DATA_PATH ?? join(process.cwd(), 'fixtures', 'data');
 
 async function readJsonFile<T>(filePath: string): Promise<T | null> {
   try {
@@ -104,4 +104,12 @@ export async function getGlobalStats(): Promise<GlobalStats | null> {
 export async function getCheckpoint(projectId: string): Promise<Checkpoint | null> {
   const checkpointPath = join(DATA_PATH, 'projects', projectId, 'checkpoint.json');
   return readJsonFile<Checkpoint>(checkpointPath);
+}
+
+export async function getHomologationLog(
+  projectId: string
+): Promise<HomologationLogEntry[]> {
+  const logPath = join(DATA_PATH, 'projects', projectId, 'homologation_log.json');
+  const data = await readJsonFile<HomologationLog>(logPath);
+  return data?.entries ?? [];
 }

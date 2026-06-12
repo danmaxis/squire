@@ -12,7 +12,8 @@ export interface CommandPollState {
 }
 
 const POLL_MS = 2000;
-const CLIENT_TIMEOUT_MS = 10 * 60 * 1000;
+const CLIENT_TIMEOUT_MS = 15 * 60 * 1000; // fix_task pode levar ~13 min no host
+const MAX_TRANSIENT_FAILURES = 3; // falhas de rede toleradas antes de desistir
 
 /**
  * Acompanha um comando enfileirado até done/failed.
@@ -32,6 +33,7 @@ export function useCommandPoll(commandId: string | null): CommandPollState {
       return;
     }
     let cancelled = false;
+    let transientFailures = 0;
     startedAt.current = Date.now();
     setState({ phase: 'pending', result: null, error: null });
 
@@ -51,6 +53,7 @@ export function useCommandPoll(commandId: string | null): CommandPollState {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const view = await res.json();
         if (cancelled) return;
+        transientFailures = 0; // resposta válida zera o contador
         if (view.status === 'done' || view.status === 'failed') {
           setState({ phase: view.status, result: view.result, error: view.result?.error ?? null });
           return;
@@ -59,6 +62,13 @@ export function useCommandPoll(commandId: string | null): CommandPollState {
         schedule();
       } catch (e) {
         if (cancelled) return;
+        // Falha de rede transitória (refresh do container, wifi…) não mata
+        // o acompanhamento de um comando que segue rodando no host.
+        transientFailures += 1;
+        if (transientFailures <= MAX_TRANSIENT_FAILURES) {
+          schedule();
+          return;
+        }
         setState({ phase: 'error', result: null, error: (e as Error).message });
       }
     };

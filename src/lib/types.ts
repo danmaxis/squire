@@ -176,7 +176,8 @@ export type CommandType =
   | 'resume'
   | 'kill'
   | 'plan_tasks'
-  | 'split_task';
+  | 'split_task'
+  | 'fix_task';
 
 export type CommandStatus = 'pending' | 'running' | 'done' | 'failed';
 
@@ -187,6 +188,26 @@ export interface QueuedCommand {
   args: Record<string, unknown>;
   created_at: string;
   requested_by: string;
+}
+
+// ── Homologation log (espelho de squire/models.py) ────────────────
+
+export interface HomologationLogEntry {
+  timestamp: string;
+  task_id: string;
+  attempt: number;
+  approved: boolean;
+  summary: string;
+  feedback: string;
+  fix_suggestion: string;
+  suggestions: string[];
+  source: 'session' | 'fix';
+  cost_usd: number;
+  model: string | null;
+}
+
+export interface HomologationLog {
+  entries: HomologationLogEntry[];
 }
 
 export interface CommandResult {

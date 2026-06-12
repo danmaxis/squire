@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { authedFetch } from '@/lib/clientApi';
 import { EFFORTS, TEST_AUTHORS } from '@/lib/taskDefaults';
@@ -29,6 +29,14 @@ export default function TaskForm({ projectId, task, onClose }: TaskFormProps) {
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -79,41 +87,41 @@ export default function TaskForm({ projectId, task, onClose }: TaskFormProps) {
       <form
         onSubmit={handleSubmit}
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-lg space-y-4 rounded-lg bg-white p-6 shadow-xl max-h-[90vh] overflow-y-auto"
+        className="w-full max-w-lg space-y-4 rounded-lg bg-white p-6 shadow-xl max-h-[90vh] overflow-y-auto dark:bg-gray-800"
       >
-        <h2 className="text-lg font-semibold text-gray-800">
+        <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
           {editing ? `Editar ${task!.id}` : 'Nova task'}
         </h2>
 
         <label className="block text-sm">
-          <span className="text-gray-700">Título *</span>
+          <span className="text-gray-700 dark:text-gray-300">Título *</span>
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             required
             autoFocus
-            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
           />
         </label>
 
         <label className="block text-sm">
-          <span className="text-gray-700">Descrição</span>
+          <span className="text-gray-700 dark:text-gray-300">Descrição</span>
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={4}
             placeholder="Seja específico: quais arquivos criar, comportamento esperado, quais testes devem passar."
-            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
           />
         </label>
 
         <div className="grid grid-cols-2 gap-4">
           <label className="block text-sm">
-            <span className="text-gray-700">Effort</span>
+            <span className="text-gray-700 dark:text-gray-300">Effort</span>
             <select
               value={effort}
               onChange={(e) => setEffort(e.target.value as Effort)}
-              className="mt-1 w-full rounded border border-gray-300 px-2 py-2 text-sm"
+              className="mt-1 w-full rounded border border-gray-300 px-2 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
             >
               {EFFORTS.map((ef) => (
                 <option key={ef} value={ef}>{ef}</option>
@@ -122,12 +130,12 @@ export default function TaskForm({ projectId, task, onClose }: TaskFormProps) {
           </label>
 
           <label className="block text-sm">
-            <span className="text-gray-700">Autor dos testes</span>
+            <span className="text-gray-700 dark:text-gray-300">Autor dos testes</span>
             <select
               value={testAuthor}
               onChange={(e) => setTestAuthor(e.target.value as TestAuthor)}
               disabled={!tdd}
-              className="mt-1 w-full rounded border border-gray-300 px-2 py-2 text-sm disabled:bg-gray-100 disabled:text-gray-400"
+              className="mt-1 w-full rounded border border-gray-300 px-2 py-2 text-sm disabled:bg-gray-100 disabled:text-gray-400 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:disabled:bg-gray-800 dark:disabled:text-gray-500"
             >
               {TEST_AUTHORS.map((a) => (
                 <option key={a} value={a}>{a}</option>
@@ -137,11 +145,11 @@ export default function TaskForm({ projectId, task, onClose }: TaskFormProps) {
         </div>
 
         <div className="flex gap-6 text-sm">
-          <label className="flex items-center gap-2 text-gray-700">
+          <label className="flex items-center gap-2 text-gray-700 dark:text-gray-300">
             <input type="checkbox" checked={tdd} onChange={(e) => setTdd(e.target.checked)} />
             TDD (fase RED antes do inner loop)
           </label>
-          <label className="flex items-center gap-2 text-gray-700">
+          <label className="flex items-center gap-2 text-gray-700 dark:text-gray-300">
             <input
               type="checkbox"
               checked={skipHomolog}
@@ -153,27 +161,27 @@ export default function TaskForm({ projectId, task, onClose }: TaskFormProps) {
 
         <div className="grid grid-cols-3 gap-4">
           <label className="block text-sm">
-            <span className="text-gray-700">Max tentativas</span>
+            <span className="text-gray-700 dark:text-gray-300">Max tentativas</span>
             <input
               type="number"
               min={1}
               value={maxAttempts}
               onChange={(e) => setMaxAttempts(Number(e.target.value))}
-              className="mt-1 w-full rounded border border-gray-300 px-2 py-2 text-sm"
+              className="mt-1 w-full rounded border border-gray-300 px-2 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
             />
           </label>
           <label className="block text-sm">
-            <span className="text-gray-700">Max rodadas</span>
+            <span className="text-gray-700 dark:text-gray-300">Max rodadas</span>
             <input
               type="number"
               min={1}
               value={maxHomolog}
               onChange={(e) => setMaxHomolog(Number(e.target.value))}
-              className="mt-1 w-full rounded border border-gray-300 px-2 py-2 text-sm"
+              className="mt-1 w-full rounded border border-gray-300 px-2 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
             />
           </label>
           <label className="block text-sm">
-            <span className="text-gray-700">Cap USD</span>
+            <span className="text-gray-700 dark:text-gray-300">Cap USD</span>
             <input
               type="number"
               min={0}
@@ -181,18 +189,18 @@ export default function TaskForm({ projectId, task, onClose }: TaskFormProps) {
               value={maxUsd}
               onChange={(e) => setMaxUsd(e.target.value)}
               placeholder="sem cap"
-              className="mt-1 w-full rounded border border-gray-300 px-2 py-2 text-sm"
+              className="mt-1 w-full rounded border border-gray-300 px-2 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
             />
           </label>
         </div>
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
         <div className="flex justify-end gap-2 pt-2">
           <button
             type="button"
             onClick={onClose}
-            className="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100"
+            className="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
           >
             Cancelar
           </button>

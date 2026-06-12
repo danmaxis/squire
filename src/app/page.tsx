@@ -9,14 +9,13 @@ import GlobalStats from '@/components/GlobalStats';
 import BudgetCard from '@/components/BudgetCard';
 import { RefreshController } from '@/components/RefreshController';
 import { getCheckpoint } from '@/lib/data';
+import { DATA_PATH } from '@/lib/squireStatePath';
 import type { Alert, RateLimitState } from '@/lib/types';
 
 // A página lê o estado do squire no filesystem a cada request — sem isto o
 // Next prerenderiza estático no build (que roda SEM o volume de dados) e a
 // home mostra para sempre o snapshot vazio do build.
 export const dynamic = 'force-dynamic';
-
-const DATA_PATH = process.env.SQUIRE_DATA_PATH ?? join(process.cwd(), 'fixtures', 'data');
 
 interface ProjectJson {
   id: string;
@@ -80,10 +79,13 @@ async function getAlerts(): Promise<Alert[]> {
   return wrapper?.alerts ?? [];
 }
 
-function mapStatus(status: string): 'active' | 'completed' | 'on-hold' | 'failed' {
+function mapStatus(
+  status: string
+): 'active' | 'completed' | 'on-hold' | 'failed' | 'blocked' {
   if (status === 'implementing' || status === 'planning') return 'active';
   if (status === 'completed') return 'completed';
-  if (status === 'paused' || status === 'blocked') return 'on-hold';
+  if (status === 'blocked') return 'blocked';
+  if (status === 'paused') return 'on-hold';
   if (status === 'failed') return 'failed';
   return 'active';
 }
@@ -171,6 +173,7 @@ export default async function HomePage() {
                   status={mapStatus(project.status)}
                   completedTasks={completedTasks}
                   totalTasks={tasks.length}
+                  blockedTasks={tasks.filter((t) => t.status === 'blocked').length}
                   lastUpdated={new Date(project.updated_at)}
                 />
               </Link>

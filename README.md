@@ -35,3 +35,14 @@ npm start
 
 # Lint
 npm run lint
+## Testes
+
+```bash
+npm test           # unit/integração (vitest, 165+ testes)
+npm run test:e2e   # Playwright contra um estado seedado (e2e/.state)
+```
+
+A suite E2E sobe `next dev` na porta 3199 com `SQUIRE_DATA_PATH` apontando
+para a fixture recriada pelo `e2e/global-setup.ts` e token `e2e-token`.
+O spec `agent-roundtrip` executa o `squire agent --once` real (pulado se o
+repo do squire não estiver em `/home/ai-debian/squire`).

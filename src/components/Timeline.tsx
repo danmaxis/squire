@@ -1,11 +1,31 @@
 'use client';
 
 import { useState } from 'react';
-import { HistoryEvent } from '@/lib/types';
+import { HistoryEvent, HomologationLogEntry } from '@/lib/types';
 
 interface TimelineProps {
   events: HistoryEvent[];
   pageSize?: number;
+  /** Vereditos completos — eventos de homologação ficam expansíveis quando casam. */
+  logEntries?: HomologationLogEntry[];
+}
+
+function findVerdict(
+  event: HistoryEvent,
+  logEntries: HomologationLogEntry[] | undefined
+): HomologationLogEntry | null {
+  if (!logEntries?.length) return null;
+  if (
+    event.type !== 'homologation_failed' &&
+    event.type !== 'homologation_approved'
+  ) {
+    return null;
+  }
+  return (
+    logEntries.find(
+      (e) => e.task_id === event.task_id && e.attempt === event.attempt
+    ) ?? null
+  );
 }
 
 const getActorColor = (actor: string) => {
@@ -176,7 +196,14 @@ function formatSessionLabel(g: SessionGroup): string {
   return `${kindLabel} · ${start.toLocaleString('pt-BR')} · ${shortId}`;
 }
 
-function EventRow({ event }: { event: HistoryEvent }) {
+function EventRow({
+  event,
+  verdict,
+}: {
+  event: HistoryEvent;
+  verdict?: HomologationLogEntry | null;
+}) {
+  const [expanded, setExpanded] = useState(false);
   return (
     <div className="relative pl-6">
       <div
@@ -205,6 +232,38 @@ function EventRow({ event }: { event: HistoryEvent }) {
           <p className="text-sm text-gray-600 leading-relaxed line-clamp-4">
             {event.summary}
           </p>
+          {verdict && (
+            <button
+              onClick={() => setExpanded((v) => !v)}
+              className="mt-1 text-xs font-medium text-purple-600 hover:underline"
+            >
+              {expanded ? 'ocultar veredito completo' : 'ver veredito completo'}
+            </button>
+          )}
+          {verdict && expanded && (
+            <div className="mt-2 space-y-2 rounded bg-gray-50 p-3 text-sm">
+              {verdict.fix_suggestion && (
+                <div>
+                  <p className="text-xs font-semibold uppercase text-amber-700">
+                    Como corrigir
+                  </p>
+                  <p className="whitespace-pre-wrap text-gray-800">
+                    {verdict.fix_suggestion}
+                  </p>
+                </div>
+              )}
+              {verdict.feedback && (
+                <div>
+                  <p className="text-xs font-semibold uppercase text-gray-500">
+                    Feedback completo
+                  </p>
+                  <p className="whitespace-pre-wrap text-gray-700">
+                    {verdict.feedback}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
         <div className="text-xs text-gray-400 whitespace-nowrap mt-1 sm:mt-0">
           {event.type}
@@ -214,7 +273,7 @@ function EventRow({ event }: { event: HistoryEvent }) {
   );
 }
 
-export function Timeline({ events, pageSize = 20 }: TimelineProps) {
+export function Timeline({ events, pageSize = 20, logEntries }: TimelineProps) {
   const groups = groupBySession(events);
   // Latest group expanded by default; older ones collapsed.
   const [openSessions, setOpenSessions] = useState<Set<string>>(
@@ -285,7 +344,11 @@ export function Timeline({ events, pageSize = 20 }: TimelineProps) {
                 ) : (
                   <div className="relative pl-4 border-l-2 border-gray-200 space-y-6">
                     {visible.map((event, index) => (
-                      <EventRow key={`${event.timestamp}-${index}`} event={event} />
+                      <EventRow
+                        key={`${event.timestamp}-${index}`}
+                        event={event}
+                        verdict={findVerdict(event, logEntries)}
+                      />
                     ))}
                   </div>
                 )}
