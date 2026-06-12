@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { readJson, writeJsonAtomic } from '@/lib/atomic';
-import { requireWriteToken } from '@/lib/auth';
+import { guardProjectWrite } from '@/lib/auth';
 import { checkpointPath } from '@/lib/squireStatePath';
-import { lockBlocksProject, readSessionLock } from '@/lib/squireLock';
 import type { Checkpoint } from '@/lib/types';
 
 interface BudgetBody {
@@ -14,21 +13,8 @@ export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const denied = requireWriteToken(req);
+  const denied = await guardProjectWrite(req, params.id);
   if (denied) return denied;
-
-  const lock = await readSessionLock();
-  if (lockBlocksProject(lock, params.id)) {
-    return NextResponse.json(
-      {
-        error: 'squire_running',
-        message: `Squire está rodando este projeto (lock holder=${lock.holder}). Espere a sessão terminar para editar o budget.`,
-        holder: lock.holder,
-        pid: lock.pid,
-      },
-      { status: 409 }
-    );
-  }
 
   let body: BudgetBody;
   try {

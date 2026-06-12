@@ -1,5 +1,6 @@
 import { promises as fs } from 'fs';
 import { join } from 'path';
+import { DATA_PATH } from './squireStatePath';
 import { newTask } from './taskDefaults';
 import type {
   Project,
@@ -16,9 +17,6 @@ import type {
   HomologationLog,
   HomologationLogEntry,
 } from './types';
-
-const DATA_PATH =
-  process.env.SQUIRE_DATA_PATH ?? join(process.cwd(), 'fixtures', 'data');
 
 async function readJsonFile<T>(filePath: string): Promise<T | null> {
   try {

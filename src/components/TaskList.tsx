@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { authedFetch } from '@/lib/clientApi';
+import { authedFetch, enqueueCommand } from '@/lib/clientApi';
 import { useCommandPoll } from '@/hooks/useCommandPoll';
 import BlockedTaskPanel from './BlockedTaskPanel';
 import TaskForm from './TaskForm';
@@ -229,20 +229,9 @@ export default function TaskList({ tasks, projectId, logEntries }: TaskListProps
     if (!projectId) return;
     setSplitError(null);
     try {
-      const res = await authedFetch('/api/commands', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'split_task',
-          project_id: projectId,
-          args: { task_id: task.id },
-        }),
+      const id = await enqueueCommand('split_task', projectId, {
+        task_id: task.id,
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.message ?? body.error ?? 'request_failed');
-      }
-      const { id } = await res.json();
       setSplitCmdId(id);
     } catch (e) {
       setSplitError((e as Error).message);

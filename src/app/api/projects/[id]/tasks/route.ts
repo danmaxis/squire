@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { readJson, writeJsonAtomic } from '@/lib/atomic';
-import { requireWriteToken } from '@/lib/auth';
+import { guardProjectWrite } from '@/lib/auth';
 import { newTask, nextTaskId, EFFORTS, TEST_AUTHORS } from '@/lib/taskDefaults';
 import { tasksPath } from '@/lib/squireStatePath';
-import { lockBlocksProject, readSessionLock } from '@/lib/squireLock';
 import type { TaskList } from '@/lib/types';
 
 interface CreateTaskBody {
@@ -23,20 +22,8 @@ export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const denied = requireWriteToken(req);
+  const denied = await guardProjectWrite(req, params.id);
   if (denied) return denied;
-
-  const lock = await readSessionLock();
-  if (lockBlocksProject(lock, params.id)) {
-    return NextResponse.json(
-      {
-        error: 'squire_running',
-        message: `Squire está executando ${params.id} — espere a sessão terminar para criar tasks.`,
-        holder: lock.holder,
-      },
-      { status: 409 }
-    );
-  }
 
   let body: CreateTaskBody;
   try {

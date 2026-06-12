@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Play, RotateCcw, Square } from 'lucide-react';
-import { authedFetch } from '@/lib/clientApi';
+import { enqueueCommand } from '@/lib/clientApi';
 import { useCommandPoll } from '@/hooks/useCommandPoll';
 import type { LockStatus } from '@/lib/squireLock';
 
@@ -27,19 +27,7 @@ export default function RunControls({ projectId, lock }: RunControlsProps) {
     }
     setError(null);
     try {
-      const res = await authedFetch('/api/commands', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type,
-          project_id: type === 'kill' ? undefined : projectId,
-        }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.message ?? body.error ?? 'request_failed');
-      }
-      const { id } = await res.json();
+      const id = await enqueueCommand(type, type === 'kill' ? null : projectId);
       setCommandId(id);
     } catch (e) {
       setError((e as Error).message);

@@ -9,14 +9,13 @@ import GlobalStats from '@/components/GlobalStats';
 import BudgetCard from '@/components/BudgetCard';
 import { RefreshController } from '@/components/RefreshController';
 import { getCheckpoint } from '@/lib/data';
+import { DATA_PATH } from '@/lib/squireStatePath';
 import type { Alert, RateLimitState } from '@/lib/types';
 
 // A página lê o estado do squire no filesystem a cada request — sem isto o
 // Next prerenderiza estático no build (que roda SEM o volume de dados) e a
 // home mostra para sempre o snapshot vazio do build.
 export const dynamic = 'force-dynamic';
-
-const DATA_PATH = process.env.SQUIRE_DATA_PATH ?? join(process.cwd(), 'fixtures', 'data');
 
 interface ProjectJson {
   id: string;

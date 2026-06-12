@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { readJson, writeJsonAtomic } from '@/lib/atomic';
-import { requireWriteToken } from '@/lib/auth';
+import { guardProjectWrite } from '@/lib/auth';
 import { projectJsonPath } from '@/lib/squireStatePath';
-import { lockBlocksProject, readSessionLock } from '@/lib/squireLock';
 import type { Project, ProjectStatus } from '@/lib/types';
 
 const PROJECT_STATUSES: ProjectStatus[] = [
@@ -26,20 +25,8 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const denied = requireWriteToken(req);
+  const denied = await guardProjectWrite(req, params.id);
   if (denied) return denied;
-
-  const lock = await readSessionLock();
-  if (lockBlocksProject(lock, params.id)) {
-    return NextResponse.json(
-      {
-        error: 'squire_running',
-        message: `Squire está executando ${params.id} — espere a sessão terminar para editar o projeto.`,
-        holder: lock.holder,
-      },
-      { status: 409 }
-    );
-  }
 
   let body: PatchProjectBody;
   try {

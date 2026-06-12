@@ -1,9 +1,7 @@
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { readJson } from './atomic';
-
-const DATA_PATH =
-  process.env.SQUIRE_DATA_PATH ?? join(process.cwd(), 'fixtures', 'data');
+import { DATA_PATH } from './squireStatePath';
 
 interface SessionLockJson {
   holder: string;

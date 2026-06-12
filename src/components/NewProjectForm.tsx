@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { authedFetch } from '@/lib/clientApi';
+import { enqueueCommand } from '@/lib/clientApi';
 import { useCommandPoll } from '@/hooks/useCommandPoll';
 
 const ID_RE = /^[a-z0-9][a-z0-9-]*$/;
@@ -37,26 +37,13 @@ export default function NewProjectForm() {
     e.preventDefault();
     setSubmitError(null);
     try {
-      const res = await authedFetch('/api/commands', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'new_project',
-          project_id: id,
-          args: {
-            name: name || id,
-            repo_path: effectiveRepo,
-            stack,
-            backend,
-            git_init: gitInit,
-          },
-        }),
+      const cmdId = await enqueueCommand('new_project', id, {
+        name: name || id,
+        repo_path: effectiveRepo,
+        stack,
+        backend,
+        git_init: gitInit,
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.message ?? body.error ?? 'request_failed');
-      }
-      const { id: cmdId } = await res.json();
       setCommandId(cmdId);
     } catch (err) {
       setSubmitError((err as Error).message);

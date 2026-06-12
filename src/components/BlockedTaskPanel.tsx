@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChevronDown, ChevronRight, Wrench } from 'lucide-react';
-import { authedFetch } from '@/lib/clientApi';
+import { enqueueCommand } from '@/lib/clientApi';
 import { useCommandPoll } from '@/hooks/useCommandPoll';
 import type { HomologationLogEntry, Task } from '@/lib/types';
 
@@ -125,20 +125,9 @@ export default function BlockedTaskPanel({
     }
     setError(null);
     try {
-      const res = await authedFetch('/api/commands', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'fix_task',
-          project_id: projectId,
-          args: { task_id: task.id },
-        }),
+      const id = await enqueueCommand('fix_task', projectId, {
+        task_id: task.id,
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.message ?? body.error ?? 'request_failed');
-      }
-      const { id } = await res.json();
       setCommandId(id);
     } catch (e) {
       setError((e as Error).message);

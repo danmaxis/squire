@@ -1,34 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { readJson, writeJsonAtomic } from '@/lib/atomic';
-import { requireWriteToken } from '@/lib/auth';
+import { guardProjectWrite } from '@/lib/auth';
 import { EDITABLE_TASK_FIELDS, EFFORTS, TEST_AUTHORS } from '@/lib/taskDefaults';
 import { tasksPath } from '@/lib/squireStatePath';
-import { lockBlocksProject, readSessionLock } from '@/lib/squireLock';
 import type { Task, TaskList } from '@/lib/types';
-
-async function guard(req: NextRequest, projectId: string) {
-  const denied = requireWriteToken(req);
-  if (denied) return denied;
-
-  const lock = await readSessionLock();
-  if (lockBlocksProject(lock, projectId)) {
-    return NextResponse.json(
-      {
-        error: 'squire_running',
-        message: `Squire está executando ${projectId} — espere a sessão terminar para editar tasks.`,
-        holder: lock.holder,
-      },
-      { status: 409 }
-    );
-  }
-  return null;
-}
 
 export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string; taskId: string } }
 ) {
-  const denied = await guard(req, params.id);
+  const denied = await guardProjectWrite(req, params.id);
   if (denied) return denied;
 
   let body: Partial<Task>;
@@ -83,7 +64,7 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: { id: string; taskId: string } }
 ) {
-  const denied = await guard(req, params.id);
+  const denied = await guardProjectWrite(req, params.id);
   if (denied) return denied;
 
   const path = tasksPath(params.id);

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Sparkles } from 'lucide-react';
-import { authedFetch } from '@/lib/clientApi';
+import { enqueueCommand } from '@/lib/clientApi';
 import { useCommandPoll } from '@/hooks/useCommandPoll';
 
 interface PlanTasksPanelProps {
@@ -47,20 +47,10 @@ export default function PlanTasksPanel({
     setError(null);
     setDoneMsg(null);
     try {
-      const res = await authedFetch('/api/commands', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'plan_tasks',
-          project_id: projectId,
-          args: { description, mode },
-        }),
+      const id = await enqueueCommand('plan_tasks', projectId, {
+        description,
+        mode,
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.message ?? body.error ?? 'request_failed');
-      }
-      const { id } = await res.json();
       setCommandId(id);
     } catch (err) {
       setError((err as Error).message);

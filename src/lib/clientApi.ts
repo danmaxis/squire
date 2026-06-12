@@ -56,3 +56,26 @@ export async function authedFetch(
   }
   return res;
 }
+
+/**
+ * Enfileira um comando no agente via POST /api/commands.
+ * Retorna o id do comando para polling; lança Error com a mensagem
+ * do servidor (message > error > fallback) quando a resposta não é ok.
+ */
+export async function enqueueCommand(
+  type: string,
+  projectId: string | null,
+  args: Record<string, unknown> = {}
+): Promise<string> {
+  const res = await authedFetch('/api/commands', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type, project_id: projectId ?? undefined, args }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.message ?? body.error ?? 'request_failed');
+  }
+  const { id } = await res.json();
+  return id;
+}
