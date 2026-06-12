@@ -66,9 +66,9 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
     : description;
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow duration-200">
+    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow duration-200 dark:bg-gray-800 dark:border-gray-700">
       <div className="flex justify-between items-start mb-4">
-        <h3 className="text-lg font-semibold text-gray-900 truncate pr-2" title={name}>
+        <h3 className="text-lg font-semibold text-gray-900 truncate pr-2 dark:text-gray-100" title={name}>
           {name}
         </h3>
         <span className="flex items-center gap-1.5">
@@ -88,16 +88,16 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
         </span>
       </div>
 
-      <p className="text-sm text-gray-600 mb-4 line-clamp-2" title={description}>
+      <p className="text-sm text-gray-600 mb-4 line-clamp-2 dark:text-gray-300" title={description}>
         {truncatedDescription}
       </p>
 
       <div className="mb-4">
-        <div className="flex justify-between text-xs text-gray-500 mb-1">
+        <div className="flex justify-between text-xs text-gray-500 mb-1 dark:text-gray-400">
           <span>Progresso</span>
           <span>{completedTasks} / {totalTasks} ({progressPercentage}%)</span>
         </div>
-        <div className="w-full bg-gray-200 rounded-full h-2">
+        <div className="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-700">
           <div
             className="bg-indigo-600 h-2 rounded-full transition-all duration-500"
             style={{ width: `${progressPercentage}%` }}
@@ -105,7 +105,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
         </div>
       </div>
 
-      <div className="flex items-center text-xs text-gray-400">
+      <div className="flex items-center text-xs text-gray-400 dark:text-gray-500">
         <svg
           className="w-4 h-4 mr-1.5"
           fill="none"

@@ -91,7 +91,8 @@ export default function GlobalStats({ stats }: GlobalStatsProps) {
         label="Aprovação 1ª"
         value={
           stats?.approval_first_try_rate !== undefined
-            ? `${Math.round(stats.approval_first_try_rate * 100)}%`
+            ? // o squire grava em escala 0-100 (ex: 50.0 = 50%) — sem multiplicar
+              `${Math.round(stats.approval_first_try_rate)}%`
             : '—'
         }
         iconBg="bg-yellow-100 dark:bg-yellow-900"
