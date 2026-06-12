@@ -1,0 +1,23 @@
+{
+  "id": "task-001",
+  "title": "Fixture",
+  "description": "",
+  "status": "pending",
+  "assigned_to": "local_llm",
+  "attempts": 0,
+  "max_attempts": 10,
+  "homologation_result": null,
+  "homologation_attempt": 0,
+  "max_homologation_attempts": 5,
+  "completed_at": null,
+  "claude_code_assisted": false,
+  "subtasks": [],
+  "rejection_summaries": [],
+  "no_progress_streak": 0,
+  "skip_homologation": false,
+  "effort": "medium",
+  "tdd": true,
+  "test_author": "claude",
+  "max_usd": null,
+  "cost_usd": 0.0
+}

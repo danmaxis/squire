@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { readJson, writeJsonAtomic } from '@/lib/atomic';
+import { requireWriteToken } from '@/lib/auth';
 import { alertsPath } from '@/lib/squireStatePath';
 import type { AlertList } from '@/lib/types';
 
@@ -22,6 +23,9 @@ function matchesAlert(
 }
 
 export async function POST(req: NextRequest) {
+  const denied = requireWriteToken(req);
+  if (denied) return denied;
+
   let body: AckBody;
   try {
     body = await req.json();

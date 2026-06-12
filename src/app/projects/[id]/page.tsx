@@ -5,6 +5,10 @@ import TaskList from '@/components/TaskList';
 import { Timeline } from '@/components/Timeline';
 import { CommitLog } from '@/components/CommitLog';
 import { CheckpointPanel } from '@/components/CheckpointPanel';
+import ProjectSettings from '@/components/ProjectSettings';
+import PlanTasksPanel from '@/components/PlanTasksPanel';
+import RunControls from '@/components/RunControls';
+import { readSessionLock } from '@/lib/squireLock';
 import { TDDProgressBar } from '@/components/TDDProgressBar';
 import { RefreshController } from '@/components/RefreshController';
 import type { ProjectStatus } from '@/lib/types';
@@ -28,12 +32,13 @@ const statusLabels: Record<ProjectStatus, string> = {
 export default async function ProjectPage({ params }: { params: { id: string } }) {
   const { id } = params;
 
-  const [project, tasks, history, commits, checkpoint] = await Promise.all([
+  const [project, tasks, history, commits, checkpoint, lock] = await Promise.all([
     getProject(id),
     getTasks(id),
     getHistory(id),
     getCommits(id),
     getCheckpoint(id),
+    readSessionLock(),
   ]);
 
   if (!project) notFound();
@@ -65,6 +70,10 @@ export default async function ProjectPage({ params }: { params: { id: string } }
             <p className="text-sm text-gray-500 mt-1">{project.description}</p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            <RunControls
+              projectId={project.id}
+              lock={{ held: lock.held, holder: lock.holder, projectId: lock.projectId }}
+            />
             <RefreshController hot={checkpoint?.phase === 'implementing'} />
             {project.coding_backend && (
               <span
@@ -118,6 +127,15 @@ export default async function ProjectPage({ params }: { params: { id: string } }
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Commits</h2>
           <CommitLog commits={commits} />
         </div>
+
+        {/* Planejamento com Claude */}
+        <PlanTasksPanel
+          projectId={project.id}
+          initialDescription={project.description}
+        />
+
+        {/* Configurações */}
+        <ProjectSettings project={project} />
 
       </div>
     </div>

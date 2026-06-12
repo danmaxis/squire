@@ -167,3 +167,37 @@ export interface GlobalStats {
 export interface HistoryEventWithAgent extends HistoryEvent {
   agent_used?: string;
 }
+
+// ── Command queue (espelho de squire/models.py) ────────────────────
+
+export type CommandType =
+  | 'new_project'
+  | 'run'
+  | 'resume'
+  | 'kill'
+  | 'plan_tasks'
+  | 'split_task';
+
+export type CommandStatus = 'pending' | 'running' | 'done' | 'failed';
+
+export interface QueuedCommand {
+  id: string;
+  type: CommandType;
+  project_id: string | null;
+  args: Record<string, unknown>;
+  created_at: string;
+  requested_by: string;
+}
+
+export interface CommandResult {
+  id: string;
+  type: CommandType;
+  project_id: string | null;
+  status: 'done' | 'failed';
+  exit_code: number | null;
+  stdout_tail: string;
+  stderr_tail: string;
+  started_at: string | null;
+  finished_at: string | null;
+  error: string | null;
+}

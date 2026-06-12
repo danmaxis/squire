@@ -21,6 +21,9 @@ services:
       - SQUIRE_DATA_PATH=/data
       # Intervalo de polling em ms (default: 30000)
       - NEXT_PUBLIC_REFRESH_INTERVAL=30000
+      # Token de escrita (gerado no .env ao lado deste arquivo — gitignored).
+      # Sem ele, todas as rotas de escrita respondem 503.
+      - DASHBOARD_WRITE_TOKEN=${DASHBOARD_WRITE_TOKEN}
     volumes:
       # Estado do squire em rw: o dashboard é segundo escritor (POST
       # /api/alerts/ack escreve acknowledged/dismiss em alerts.json)

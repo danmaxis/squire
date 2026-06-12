@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { authedFetch } from '@/lib/clientApi';
 import { Alert } from '@/lib/types';
 
 interface AlertBannerProps {
@@ -14,7 +15,7 @@ const alertKey = (alert: Alert) =>
   `${alert.project_id}::${alert.task_id ?? ''}::${alert.created_at}`;
 
 async function ackAlert(alert: Alert, dismiss: boolean) {
-  const res = await fetch('/api/alerts/ack', {
+  const res = await authedFetch('/api/alerts/ack', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
