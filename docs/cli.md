@@ -19,6 +19,7 @@ no script bash `squire` (raiz do repo); cada subcomando é uma função
 - [Tasks](#tasks): `tasks list|add|edit|rm|split|plan`
 - [Projeto](#projeto): `new` · `projects` · `rm`
 - [Orçamento](#orçamento): `budget` · `budget set` · `budget reset`
+- [Agente](#agente): `agent`
 - [Ajuda](#ajuda): `help`
 
 ## Execução
@@ -309,27 +310,39 @@ Adiciona uma task interativamente ou via flags.
 | `--skip-homolog`        | Auto-aprovação após inner loop (sem chamar Claude)         |
 | `--max N`               | `max_attempts` (default: 10)                                |
 | `--max-homolog N`       | `max_homologation_attempts` (default: 5)                    |
+| `--no-ask`              | Pula o prompt de campos avançados (effort/tdd/test_author)  |
+| `--spec` / `--no-spec`  | Atualiza/pula o SPEC.md sem perguntar                       |
 
 ### `squire tasks edit <projeto> [task-id]`
 
 Abre a task no `$EDITOR` (formato YAML editável). Sem `task-id`, abre o
 arquivo `tasks.json` inteiro.
 
-### `squire tasks rm <projeto> <task-id>`
+### `squire tasks rm <projeto> <task-id> [--yes]`
 
-Remove a task. Sem confirmação dupla — esta operação só toca em JSON
-de estado, fácil de recuperar de backup ou git.
+Remove a task após confirmação simples. `--yes` pula a confirmação
+(scripts e o agente host usam isso).
 
-### `squire tasks split <projeto> <task-id>`
+### `squire tasks split <projeto> <task-id> [--yes]`
 
 Pede ao Claude para subdividir a task em subtasks/subitems. Mostra a
-proposta e permite refinar uma vez antes de aplicar.
+proposta e permite refinar uma vez antes de aplicar. `--yes` aceita a
+primeira proposta sem confirmação.
 
-### `squire tasks plan <projeto> [--desc "..."]`
+### `squire tasks plan <projeto> [--desc "..."] [--mode append|replace] [--no-refine] [--yes] [--spec|--no-spec]`
 
 Pede ao Claude para gerar a lista inicial de tasks a partir de uma
 descrição livre. Até 3 ciclos de refinamento interativo. Pergunta no fim
-se você quer substituir ou anexar ao `tasks.json` atual.
+se você quer substituir ou anexar ao `tasks.json` atual — **Enter
+significa anexar** (escolha não-destrutiva).
+
+Modo não-interativo (usado pelo agente host / dashboard):
+
+- `--yes` — zero prompts: sem refinamento, modo `append` por padrão,
+  SPEC.md pulado a menos que `--spec` seja passado. Recusa rodar se há
+  uma sessão squire ativa (não disputa o `tasks.json` com ela).
+- `--mode append|replace` — decide anexar/substituir sem perguntar.
+- `--no-refine` — só o primeiro rascunho, sem loop de feedback.
 
 ```bash
 $ squire tasks plan squire-dashboard --desc "Next.js page reading JSON state"
@@ -352,6 +365,8 @@ Cria um novo projeto com `project.json` + `tasks.json` template no
 | `--name <nome>`       | `<projeto>` (mesmo do ID)                     |
 | `--stack <csv>`       | `typescript`                                  |
 | `--backend <name>`    | `opencode` (também aceita `litellm`, `crush`) |
+| `--yes`               | Pula o prompt "planejar tasks com Claude?"    |
+| `--git-init`          | Cria o repo com `git init` + commit vazio     |
 
 ```bash
 $ squire new my-api --repo /home/ai-debian/projects/my-api \
@@ -400,7 +415,7 @@ Para confirmar, digite exatamente: my-api echo
 
 > **Insight:** o uso de palavra do alfabeto NATO (alpha, bravo, charlie, ...
 > zulu) evita `rm` acidental por copy-paste do histórico — você precisa ler
-> o prompt para saber qual palavra digitar. Veja [`squire.py:1266`](../squire.py).
+> o prompt para saber qual palavra digitar. Veja [`squire.py:1294`](../squire.py).
 
 ## Orçamento
 
@@ -450,6 +465,48 @@ recomeçar a contagem sem esperar a virada UTC.
 ```bash
 $ squire budget reset
 ✓ Contadores diários resetados para 2026-05-11
+```
+
+## Agente
+
+### `squire agent [--once] [--poll N]`
+
+Executa comandos enfileirados pelo dashboard (delegado para `agent_cli.py`).
+O dashboard roda em container sem acesso aos repos nem aos binários do
+host — qualquer operação que precise deles (criar projeto, run/resume/kill,
+planejar tasks com Claude) vira um arquivo em
+`$SQUIRE_STATE_ROOT/commands/pending/<uuid>.json`, que o agente reivindica
+(rename atômico para `running/`), executa e responde em `done/<uuid>.json`.
+
+- Whitelist estrita: `new_project`, `run`, `resume`, `kill`, `plan_tasks`,
+  `split_task` — com validação de `project_id`/args e argv em lista (nunca
+  shell).
+- `--once` processa a fila e sai (útil em testes/cron); sem flag, loop
+  contínuo com poll de 2s.
+- Instância única via pidfile (`commands/agent.pid`).
+- Comandos órfãos (agente reiniciado no meio) viram `failed` — nunca são
+  re-executados.
+- Resultados em `done/` expiram após `SQUIRE_COMMAND_TTL_H` (default 24h).
+
+Para rodar como serviço (sobrevive a logout/reboot):
+
+```ini
+# ~/.config/systemd/user/squire-agent.service
+[Unit]
+Description=Squire command agent
+
+[Service]
+ExecStart=/home/ai-debian/squire/squire agent
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+$ loginctl enable-linger ai-debian          # systemd --user sem sessão ativa
+$ systemctl --user daemon-reload
+$ systemctl --user enable --now squire-agent
 ```
 
 ## Ajuda

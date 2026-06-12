@@ -181,7 +181,7 @@ routing, set env vars pointing to different models, e.g.,
 Tasks with `effort=low` that enter a loop (same rejection repeated in N
 rounds) trigger **early escalation**: Claude implements directly instead
 of having the local LLM keep trying. Logic in
-[`squire.py:1021`](../../squire.py): "easy tasks that aren't converging
+[`squire.py:1049`](../../squire.py): "easy tasks that aren't converging
 indicate either bad description or obscure edge case — calling Claude
 directly is cheaper than 3 more local rounds".
 

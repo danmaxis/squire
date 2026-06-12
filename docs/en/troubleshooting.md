@@ -120,7 +120,7 @@ why Claude was rejecting.
 and producing bizarre output.
 
 **Diagnosis:** `_select_agent`
-([`backends.py:338`](../../backends.py)) matched a rule it shouldn't.
+([`backends.py:427`](../../backends.py)) matched a rule it shouldn't.
 Current rules already avoid common false positives, but the title may
 be tricking the regex.
 
@@ -242,7 +242,7 @@ The loop continues because the local LLM has no way out without help.
 
 **Diagnosis:** the fence parser
 (`LiteLLMBackend._apply_changes`,
-[`backends.py:223`](../../backends.py)) only recognizes specific formats:
+[`backends.py:299`](../../backends.py)) only recognizes specific formats:
 
 ```text
 ```filepath:src/foo.ts

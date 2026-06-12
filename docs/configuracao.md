@@ -91,6 +91,15 @@ Qualquer endpoint OpenAI-compatible serve: LiteLLM gateway, **Ollama**
 | `SQUIRE_LOOP_DETECT`    | `3`     | Rejeições consecutivas com mesmo padrão → escalação forçada     |
 | `SQUIRE_NO_PROGRESS`    | `3`     | Ciclos sem arquivo modificado → escalação forçada               |
 
+### Fila de comandos / agente
+
+| Variável                  | Default                       | Efeito                                                       |
+| ------------------------- | ----------------------------- | ------------------------------------------------------------ |
+| `SQUIRE_COMMAND_TTL_H`    | `24`                          | Horas até resultados em `commands/done/` serem apagados      |
+| `SQUIRE_COMMAND_TIMEOUT`  | `900`                         | Timeout (s) de execução de um comando enfileirado            |
+| `SQUIRE_AGENT_POLL`       | `2`                           | Intervalo (s) de polling do `squire agent`                   |
+| `SQUIRE_AGENT_REPO_ROOT`  | `/home/ai-debian/projects`    | Raiz permitida para `repo_path` de projetos criados via fila |
+
 ### Sessão e lock
 
 | Variável                | Default | Efeito                                                            |

@@ -73,6 +73,9 @@ locais para 1 do Claude Code**.
 | `viking.py`            | Carga de `<repo>/docs/viking/*.md` (restrições por domínio)              |
 | `progress.py`          | Geração/leitura de `progress.txt` (memória de longo prazo)              |
 | `tasks_cli.py`         | Subcomandos `squire tasks` (list/add/edit/rm/split/plan)                |
+| `alerts_cli.py`        | Subcomandos `squire alerts` (list/ack/rm)                               |
+| `doctor.py`            | `squire doctor` — health check do ambiente (+ `--fix` de locks mortos)  |
+| `agent_cli.py`         | `squire agent` — executa a fila de comandos do dashboard (`commands/`)  |
 | `squire` (bash)        | Front-end CLI: dispatcha subcomandos, gerencia bg/lock/log              |
 
 > **Insight:** o boundary entre `squire.py` e `inner_loop.py` é importante.
@@ -139,12 +142,12 @@ rastreia o `CursorStep` corrente dentro de uma rodada: `planning`, `red_phase`
    monta instrução, chama backend, roda testes. A cada 5 falhas, pede
    ajuda técnica ao Claude Code (`TechnicalEscalation.unblock`).
 4. **Gate mecânico** — antes de gastar uma call ao Claude Code,
-   `_pre_homologation_checks` ([`squire.py:640`](../squire.py)) roda
+   `_pre_homologation_checks` ([`squire.py:672`](../squire.py)) roda
    typecheckers/compiladores por linguagem (tsc, cargo check, mvn compile,
    go build, etc.) e detecta padrões anti-vibe-coding (`any`, `# type: ignore`,
    `unsafe`, `catch unreachable`). Falha → volta para o inner loop sem
    consumir budget.
-5. **Homologação** — `Homologator.review` ([`homologator.py:63`](../homologator.py))
+5. **Homologação** — `Homologator.review` ([`homologator.py:59`](../homologator.py))
    envia código + contexto para o Claude Code, recebe `HomologationResult`.
    Aprovado: commit + próxima task. Rejeitado: feedback realimenta o inner loop.
 6. **Escalações automáticas** — loop detectado (mesmo erro em N rejeições

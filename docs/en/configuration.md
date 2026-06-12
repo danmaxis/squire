@@ -90,6 +90,15 @@ llama.cpp server. In the current setup, it's Ollama on Zordon
 | `SQUIRE_LOOP_DETECT`    | `3`     | Consecutive rejections with same pattern → forced escalation    |
 | `SQUIRE_NO_PROGRESS`    | `3`     | Cycles without modified files → forced escalation               |
 
+### Command queue / agent
+
+| Variable                  | Default                       | Effect                                                       |
+| ------------------------- | ----------------------------- | ------------------------------------------------------------ |
+| `SQUIRE_COMMAND_TTL_H`    | `24`                          | Hours until results in `commands/done/` are deleted          |
+| `SQUIRE_COMMAND_TIMEOUT`  | `900`                         | Execution timeout (s) for a queued command                   |
+| `SQUIRE_AGENT_POLL`       | `2`                           | `squire agent` polling interval (s)                          |
+| `SQUIRE_AGENT_REPO_ROOT`  | `/home/ai-debian/projects`    | Allowed root for `repo_path` of projects created via queue   |
+
 ### Session and lock
 
 | Variable                | Default | Effect                                                              |

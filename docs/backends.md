@@ -5,7 +5,7 @@
 Squire delega a execução do código para um **backend** — um adapter que
 recebe uma instrução textual e devolve os arquivos modificados. Três
 backends são suportados hoje: **LiteLLM**, **OpenCode**, **Crush**. A
-interface comum é `CodingBackend` em [`backends.py:108`](../backends.py).
+interface comum é `CodingBackend` em [`backends.py:134`](../backends.py).
 
 ## Sumário
 
@@ -59,7 +59,7 @@ llama.cpp server. No setup atual do squire, é o Ollama no Zordon
 
 ### Formato de fences aceito
 
-`_extract_filepath` ([`backends.py:278`](../backends.py)) reconhece quatro formatos:
+`_extract_filepath` ([`backends.py:359`](../backends.py)) reconhece quatro formatos:
 
 ```text
 ```filepath:src/foo.ts        # padrão recomendado
@@ -70,9 +70,26 @@ src/foo.ts                    # caminho na linha ANTES do fence
 ```
 ```
 
+### Validação de caminhos
+
+Todo candidato a caminho passa por `_is_plausible_relpath` antes de virar
+arquivo: relativo, sem espaços/metacaracteres de shell (`#`, `"`, `=`…),
+sem `..`/absolutos, com extensão ou nome conhecido (Dockerfile etc.).
+Linhas soltas que o Qwen derrama fora dos fences (`pytest==8.0.0`,
+`# src`, `rm -rf "`) são ignoradas com um aviso no log em vez de virar
+arquivos-lixo no repo. `_write_file` revalida e confina a escrita ao
+diretório do projeto (defesa em profundidade contra traversal).
+
+### Erros HTTP acionáveis
+
+Falhas 4xx não fazem retry e chegam com mensagem apontando a correção:
+401/403 → "verifique `SQUIRE_LITELLM_KEY`"; 404 → "modelo X não
+encontrado em <endpoint> — verifique `SQUIRE_LITELLM_MODEL`"; conexão
+recusada → "endpoint LLM inacessível em <url> — o serviço está rodando?".
+
 ### System prompt
 
-Hardcoded em [`backends.py:30`](../backends.py):
+Hardcoded em [`backends.py:32`](../backends.py):
 
 ```text
 Você é um desenvolvedor experiente num loop de CI automatizado.
@@ -114,7 +131,7 @@ diretamente. O squire detecta as mudanças via `git diff --name-only`.
 
 ### Roteamento de agentes
 
-`_select_agent` ([`backends.py:338`](../backends.py)) escolhe entre:
+`_select_agent` ([`backends.py:427`](../backends.py)) escolhe entre:
 
 | Agente     | Quando dispara                                                                                              |
 | ---------- | ----------------------------------------------------------------------------------------------------------- |
@@ -203,7 +220,7 @@ class _LLMLock:
     # ...
 ```
 
-[`backends.py:75`](../backends.py). É um `flock` exclusivo em
+[`backends.py:100`](../backends.py). É um `flock` exclusivo em
 `$SQUIRE_STATE_ROOT/llm.lock`. Garante que **apenas um backend chama um LLM
 por vez** — evita saturar CPU/GPU quando múltiplas ferramentas estão
 rodando (ex: orchestrator + um aider standalone + opencode interativo).

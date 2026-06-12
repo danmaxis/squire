@@ -26,6 +26,10 @@ $SQUIRE_STATE_ROOT/
 ├── global-stats.json             ← contadores agregados do dia
 ├── alerts.json                   ← alertas que requerem atenção
 ├── rate.json                     ← legado, não usado atualmente
+├── commands/                     ← fila do dashboard → squire agent
+│   ├── pending/<uuid>.json       ← enfileirado pelo dashboard
+│   ├── running/<uuid>.json       ← reivindicado pelo agente (rename atômico)
+│   └── done/<uuid>.json          ← resultado (expira após SQUIRE_COMMAND_TTL_H)
 └── projects/
     └── <project-id>/
         ├── project.json          ← metadata do projeto
@@ -273,7 +277,7 @@ dois commits automáticos:
 
 ### 1. Antes de cada task (auto-snapshot)
 
-`_auto_snapshot_commit` ([`squire.py:174`](../squire.py)) roda:
+`_auto_snapshot_commit` ([`squire.py:206`](../squire.py)) roda:
 
 ```bash
 git add -A
@@ -287,7 +291,7 @@ trabalho real seria perdido.
 
 ### 2. Após homologação aprovada (auto-commit da task)
 
-`_commit_task_completion` ([`squire.py:223`](../squire.py)):
+`_commit_task_completion` ([`squire.py:255`](../squire.py)):
 
 ```bash
 git add -A
@@ -396,7 +400,7 @@ Para confirmar, digite exatamente: my-app foxtrot
 > **Insight — palavra NATO como confirmação.**
 > Alpha, bravo, charlie... zulu. Uma palavra aleatória do alfabeto fonético
 > é o suficiente para impedir `rm` acidental por copy-paste do histórico ou
-> autocompletar do shell. Veja [`squire.py:1266`](../squire.py).
+> autocompletar do shell. Veja [`squire.py:1294`](../squire.py).
 
 ## Cenários comuns
 

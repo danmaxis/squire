@@ -181,7 +181,7 @@ ex: `SQUIRE_MODEL_HIGH=qwen-72b-instruct`.
 Tasks com `effort=low` que entram em loop (mesma rejeição repetida em N
 rodadas) acionam **escalação antecipada**: o Claude implementa diretamente
 em vez de continuar mandando o local tentar. A lógica está em
-[`squire.py:1021`](../squire.py): "tasks fáceis que não estão convergindo
+[`squire.py:1049`](../squire.py): "tasks fáceis que não estão convergindo
 indicam ou descrição ruim ou edge case obscuro — chamar o Claude direto
 é mais barato que mais 3 rodadas locais".
 

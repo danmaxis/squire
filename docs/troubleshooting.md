@@ -118,7 +118,7 @@ Claude estava rejeitando.
 **Sintoma:** task de implementação está usando `debug` agent (ou `terminal`)
 e produzindo output bizarro.
 
-**Diagnóstico:** o `_select_agent` ([`backends.py:338`](../backends.py))
+**Diagnóstico:** o `_select_agent` ([`backends.py:427`](../backends.py))
 casou com uma regra que não deveria. As regras atuais já evitam falsos
 positivos comuns, mas o título pode estar enganando o regex.
 
@@ -237,7 +237,7 @@ O loop continua porque o LLM local não tem como sair sem ajuda.
 visivelmente no `raw_output`.
 
 **Diagnóstico:** O parser de fences (`LiteLLMBackend._apply_changes`,
-[`backends.py:223`](../backends.py)) só reconhece formatos específicos:
+[`backends.py:299`](../backends.py)) só reconhece formatos específicos:
 
 ```text
 ```filepath:src/foo.ts

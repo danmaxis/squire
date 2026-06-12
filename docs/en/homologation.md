@@ -51,6 +51,23 @@ Each **round** is one `inner loop + homologation` pair. A task gets up
 to `max_homologation_attempts` rounds (default 5). Each round costs at
 most one Claude call for review + possibly extra escalation calls.
 
+### Infra failures don't consume a round
+
+The review result carries an `error_kind` classifying execution failures
+(not verdicts):
+
+- **`infra`** (transient): Claude returned invalid JSON ("Parse error"),
+  empty stdout, the 180s timeout, or a non-zero exit code. The round gets
+  **one free retry** after 10s — only the second consecutive failure
+  consumes the round. Before this, a CLI hiccup burned one of the 5
+  rounds.
+- **`config`** (won't fix itself): Claude binary missing. The task is
+  blocked immediately with an actionable message instead of burning all
+  5 rounds against the same error.
+
+Every real call (including the retry) is accounted for in cost and rate
+limiting as usual.
+
 ## Verdict structure
 
 Claude Code is invoked via `claude --print --output-format json`. It
@@ -90,7 +107,7 @@ the inner loop with violations as feedback — without burning Claude
 budget.
 
 Implementation: `_pre_homologation_checks`
-([`squire.py:640`](../../squire.py)).
+([`squire.py:672`](../../squire.py)).
 
 ### Per-language
 
@@ -154,7 +171,7 @@ something else.
 ### Rejection loop
 
 `Task.rejection_summaries` keeps the last 10 rejection `summary`s.
-`_is_looping` ([`squire.py:366`](../../squire.py)) checks whether the
+`_is_looping` ([`squire.py:398`](../../squire.py)) checks whether the
 last N (default `SQUIRE_LOOP_DETECT=3`) rejections share 4+ significant
 words:
 
@@ -232,7 +249,7 @@ if `task.test_author=claude` (default), Claude writes the tests. See
 
 When rate limit activates between rounds (`can_afford` returns `False`),
 squire **does not sleep**. Instead, it calls `_wait_productively`
-([`squire.py:618`](../../squire.py)) which keeps running the inner
+([`squire.py:650`](../../squire.py)) which keeps running the inner
 loop with the accumulated last-rejection feedback:
 
 ```python

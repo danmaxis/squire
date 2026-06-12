@@ -74,6 +74,9 @@ Costs ~1000× more per call than tier 1, so the goal is a ratio of
 | `viking.py`            | Loads `<repo>/docs/viking/*.md` (per-domain restrictions)               |
 | `progress.py`          | Generates/reads `progress.txt` (long-term memory)                       |
 | `tasks_cli.py`         | `squire tasks` subcommands (list/add/edit/rm/split/plan)                |
+| `alerts_cli.py`        | `squire alerts` subcommands (list/ack/rm)                               |
+| `doctor.py`            | `squire doctor` — environment health check (+ `--fix` for dead locks)   |
+| `agent_cli.py`         | `squire agent` — executes the dashboard command queue (`commands/`)     |
 | `squire` (bash)        | CLI front-end: dispatches subcommands, manages bg/lock/log              |
 
 > **Insight:** the boundary between `squire.py` and `inner_loop.py` is
@@ -145,13 +148,13 @@ implementation), `llm_execution`, `testing`, `homologation`, `completed`.
    instruction, call backend, run tests. Every 5 failures, ask Claude
    Code for help (`TechnicalEscalation.unblock`).
 4. **Mechanical gate** — before spending a Claude Code call,
-   `_pre_homologation_checks` ([`squire.py:640`](../../squire.py)) runs
+   `_pre_homologation_checks` ([`squire.py:672`](../../squire.py)) runs
    typecheckers/compilers per language (tsc, cargo check, mvn compile,
    go build, etc.) and detects anti-vibe-coding patterns (`any`,
    `# type: ignore`, `unsafe`, `catch unreachable`). Failure → back to
    the inner loop without consuming budget.
 5. **Homologation** — `Homologator.review`
-   ([`homologator.py:63`](../../homologator.py)) sends code + context
+   ([`homologator.py:59`](../../homologator.py)) sends code + context
    to Claude Code, receives `HomologationResult`. Approved: commit +
    next task. Rejected: feedback feeds back to the inner loop.
 6. **Automatic escalations** — loop detected (same error in N consecutive
