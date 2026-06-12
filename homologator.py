@@ -451,12 +451,23 @@ Cada arquivo deve ser completo e funcional. Não use TODOs nem esqueletos."""
                 timeout=300,  # 5 min — pode precisar escrever vários arquivos
             )
             if result.returncode != 0 or not result.stdout.strip():
+                print(
+                    f"⚠ implement_directly: claude saiu com código "
+                    f"{result.returncode} (stderr: {result.stderr[:200] or 'vazio'})"
+                )
                 return [], None
             self._vlog("←", result.stdout)
             text, usage = _unwrap_claude_json(result.stdout)
             files = parse_and_apply_files(text, self.project_path)
             return files, usage
-        except (subprocess.TimeoutExpired, FileNotFoundError):
+        except subprocess.TimeoutExpired:
+            print("⚠ implement_directly: claude excedeu o timeout de 300s")
+            return [], None
+        except FileNotFoundError:
+            print(
+                f"⚠ implement_directly: binário '{self.claude_bin}' não "
+                f"encontrado no PATH — verifique SQUIRE_CLAUDE_BIN/PATH"
+            )
             return [], None
 
     def unblock(
