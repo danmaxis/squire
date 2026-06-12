@@ -689,6 +689,11 @@ cmd_agent() {
         "$SQUIRE_VENV" -u "$SQUIRE_DIR/agent_cli.py" "$@"
 }
 
+cmd_fix() {
+    SQUIRE_STATE_ROOT="$SQUIRE_STATE_ROOT" \
+        "$SQUIRE_VENV" -u "$SQUIRE_DIR/fix_cli.py" "$@"
+}
+
 cmd_help() {
     bold "squire — CLI"
     echo ""
@@ -703,6 +708,7 @@ cmd_help() {
     echo -e "  ${CYAN}squire status${RESET}              Mostra estado de sessão/projetos/rate-limit"
     echo -e "  ${CYAN}squire kill${RESET}                Encerra o processo da sessão ativa e remove o lock"
     echo -e "  ${CYAN}squire unlock${RESET}              Remove o session.lock residual deixado por crash (não mata processo)"
+    echo -e "  ${CYAN}squire fix${RESET} <projeto> <task-id>   Claude corrige task bloqueada (implementa + testa + 1 homologação)"
     echo -e "  ${CYAN}squire unblock${RESET} <projeto> [id...]"
     echo -e "                           Retoma tasks com status 'blocked' → pending (mantém o código no repo)"
     echo -e "  ${CYAN}squire reset${RESET}   <projeto> [id...]"
@@ -759,6 +765,7 @@ case "$CMD" in
     alerts)   cmd_alerts "$@" ;;
     doctor)   cmd_doctor "$@" ;;
     agent)    cmd_agent "$@" ;;
+    fix)      cmd_fix "$@" ;;
     budget)   cmd_budget "$@" ;;
     help|-h|--help) cmd_help ;;
     *)

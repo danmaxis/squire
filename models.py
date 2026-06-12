@@ -308,6 +308,7 @@ class CommandType(str, Enum):
     kill = "kill"
     plan_tasks = "plan_tasks"
     split_task = "split_task"
+    fix_task = "fix_task"
 
 
 class CommandStatus(str, Enum):
