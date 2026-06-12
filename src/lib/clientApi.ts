@@ -21,6 +21,8 @@ export function setWriteToken(token: string) {
 /**
  * fetch com Authorization: Bearer do token salvo no login.
  * Em 401, redireciona para /login preservando a rota atual.
+ * Em 503 (writes_disabled), reescreve o body com mensagem acionável —
+ * redirecionar para o login não resolveria (o problema é no servidor).
  */
 export async function authedFetch(
   url: string,
@@ -37,6 +39,20 @@ export async function authedFetch(
       window.location.pathname + window.location.search
     );
     window.location.assign(`/login?from=${from}`);
+  }
+
+  if (res.status === 503) {
+    const body = await res.clone().json().catch(() => ({}));
+    if (body?.error === 'writes_disabled') {
+      return new Response(
+        JSON.stringify({
+          error: 'writes_disabled',
+          message:
+            'Escrita desabilitada: configure DASHBOARD_WRITE_TOKEN no servidor (compose .env) e recrie o container.',
+        }),
+        { status: 503, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
   }
   return res;
 }

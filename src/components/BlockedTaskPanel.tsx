@@ -16,7 +16,7 @@ interface BlockedTaskPanelProps {
 function VerdictCard({ entry }: { entry: HomologationLogEntry }) {
   const [expanded, setExpanded] = useState(false);
   return (
-    <div className="rounded border border-red-200 bg-red-50/50 p-3 text-sm">
+    <div className="rounded border border-red-200 bg-red-50/50 p-3 text-sm dark:border-red-800 dark:bg-red-950/50">
       <button
         onClick={() => setExpanded((v) => !v)}
         className="flex w-full items-start gap-2 text-left"
@@ -29,45 +29,45 @@ function VerdictCard({ entry }: { entry: HomologationLogEntry }) {
         )}
         <div className="flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-medium text-red-800">
+            <span className="font-medium text-red-800 dark:text-red-300">
               Rodada {entry.attempt}
             </span>
             {entry.source === 'fix' && (
-              <span className="rounded bg-purple-100 px-1.5 py-0.5 text-xs font-medium text-purple-700">
+              <span className="rounded bg-purple-100 px-1.5 py-0.5 text-xs font-medium text-purple-700 dark:bg-purple-950 dark:text-purple-300">
                 via fix
               </span>
             )}
-            <span className="text-xs text-gray-500">
+            <span className="text-xs text-gray-500 dark:text-gray-400">
               {new Date(entry.timestamp).toLocaleString('pt-BR')}
             </span>
             {entry.cost_usd > 0 && (
-              <span className="font-mono text-xs text-gray-500">
+              <span className="font-mono text-xs text-gray-500 dark:text-gray-400">
                 ${entry.cost_usd.toFixed(3)}
               </span>
             )}
           </div>
-          <p className="mt-1 text-gray-800">{entry.summary}</p>
+          <p className="mt-1 text-gray-800 dark:text-gray-200">{entry.summary}</p>
         </div>
       </button>
 
       {expanded && (
         <div className="ml-6 mt-2 space-y-2">
           {entry.fix_suggestion && (
-            <div className="rounded bg-amber-50 p-2">
-              <p className="text-xs font-semibold uppercase text-amber-700">
+            <div className="rounded bg-amber-50 p-2 dark:bg-amber-950">
+              <p className="text-xs font-semibold uppercase text-amber-700 dark:text-amber-300">
                 Como corrigir
               </p>
-              <p className="whitespace-pre-wrap text-gray-800">
+              <p className="whitespace-pre-wrap text-gray-800 dark:text-gray-200">
                 {entry.fix_suggestion}
               </p>
             </div>
           )}
           {entry.feedback && (
             <div>
-              <p className="text-xs font-semibold uppercase text-gray-500">
+              <p className="text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">
                 Feedback completo
               </p>
-              <p className="whitespace-pre-wrap text-gray-700">{entry.feedback}</p>
+              <p className="whitespace-pre-wrap text-gray-700 dark:text-gray-300">{entry.feedback}</p>
             </div>
           )}
         </div>
@@ -148,7 +148,7 @@ export default function BlockedTaskPanel({
   return (
     <div className="mt-3 space-y-2" data-testid="blocked-task-panel">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-medium text-red-700">
+        <span className="text-sm font-medium text-red-700 dark:text-red-400">
           Task bloqueada — histórico de rejeições
         </span>
         <button
@@ -162,14 +162,14 @@ export default function BlockedTaskPanel({
       </div>
 
       {busy && (
-        <p className="text-sm text-purple-600">
+        <p className="text-sm text-purple-600 dark:text-purple-300">
           {poll.phase === 'pending'
             ? 'Aguardando o agente…'
             : 'Claude corrigindo — implementação + testes + homologação (~5–8 min).'}
         </p>
       )}
       {error && (
-        <pre className="max-h-32 overflow-auto whitespace-pre-wrap rounded bg-red-50 p-2 text-xs text-red-700">
+        <pre className="max-h-32 overflow-auto whitespace-pre-wrap rounded bg-red-50 p-2 text-xs text-red-700 dark:bg-red-950/50 dark:text-red-300">
           {error}
         </pre>
       )}
@@ -182,20 +182,20 @@ export default function BlockedTaskPanel({
         </div>
       ) : task.rejection_summaries.length > 0 ? (
         <div className="space-y-1">
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-gray-500 dark:text-gray-400">
             (vereditos completos indisponíveis para rodadas antigas — resumos:)
           </p>
           {[...task.rejection_summaries].reverse().map((summary, i) => (
             <div
               key={i}
-              className="rounded border border-red-200 bg-red-50/50 p-2 text-sm text-gray-800"
+              className="rounded border border-red-200 bg-red-50/50 p-2 text-sm text-gray-800 dark:border-red-800 dark:bg-red-950/50 dark:text-gray-200"
             >
               {summary}
             </div>
           ))}
         </div>
       ) : (
-        <p className="text-sm text-gray-500">Sem histórico de rejeições registrado.</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400">Sem histórico de rejeições registrado.</p>
       )}
     </div>
   );

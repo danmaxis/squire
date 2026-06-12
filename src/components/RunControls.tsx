@@ -91,11 +91,11 @@ export default function RunControls({ projectId, lock }: RunControlsProps) {
         <Square className="h-3.5 w-3.5" /> Kill
       </button>
       {busy && (
-        <span className="text-xs text-blue-600">
+        <span className="text-xs text-blue-600 dark:text-blue-400">
           {poll.phase === 'pending' ? 'aguardando agente…' : 'executando…'}
         </span>
       )}
-      {error && <span className="text-xs text-red-600">{error}</span>}
+      {error && <span className="text-xs text-red-600 dark:text-red-400">{error}</span>}
     </div>
   );
 }

@@ -68,10 +68,10 @@ export default function PlanTasksPanel({
   };
 
   return (
-    <div className="rounded-lg border border-gray-200 bg-white">
+    <div className="rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-2 px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50"
+        className="flex w-full items-center gap-2 px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700"
         aria-expanded={open}
       >
         <Sparkles className="h-4 w-4 text-purple-500" />
@@ -79,19 +79,19 @@ export default function PlanTasksPanel({
       </button>
 
       {open && (
-        <form onSubmit={handleSubmit} className="space-y-3 border-t border-gray-100 p-4">
+        <form onSubmit={handleSubmit} className="space-y-3 border-t border-gray-100 p-4 dark:border-gray-700">
           <label className="block text-sm">
-            <span className="text-gray-700">O que o projeto deve fazer?</span>
+            <span className="text-gray-700 dark:text-gray-300">O que o projeto deve fazer?</span>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={4}
               placeholder="Descreva funcionalidades, stack e restrições — quanto mais específico, melhor o plano."
-              className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm"
+              className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
             />
           </label>
 
-          <div className="flex gap-6 text-sm text-gray-700">
+          <div className="flex gap-6 text-sm text-gray-700 dark:text-gray-300">
             <label className="flex items-center gap-2">
               <input
                 type="radio"
@@ -108,21 +108,21 @@ export default function PlanTasksPanel({
               />
               <span>
                 Substituir tudo{' '}
-                <span className="text-xs text-red-500">(descarta o backlog atual)</span>
+                <span className="text-xs text-red-500 dark:text-red-400">(descarta o backlog atual)</span>
               </span>
             </label>
           </div>
 
           {busy && (
-            <p className="text-sm text-purple-600">
+            <p className="text-sm text-purple-600 dark:text-purple-300">
               {poll.phase === 'pending'
                 ? 'Aguardando o agente…'
                 : 'Claude planejando… pode levar ~3 min.'}
             </p>
           )}
-          {doneMsg && <p className="text-sm text-green-600">{doneMsg}</p>}
+          {doneMsg && <p className="text-sm text-green-600 dark:text-green-400">{doneMsg}</p>}
           {error && (
-            <pre className="max-h-32 overflow-auto rounded bg-red-50 p-2 text-xs text-red-700">
+            <pre className="max-h-32 overflow-auto rounded bg-red-50 p-2 text-xs text-red-700 dark:bg-red-950/50 dark:text-red-300">
               {error}
             </pre>
           )}

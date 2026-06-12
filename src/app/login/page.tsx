@@ -41,13 +41,13 @@ function LoginForm() {
     <div className="flex min-h-[60vh] items-center justify-center">
       <form
         onSubmit={handleSubmit}
-        className="w-full max-w-sm space-y-4 rounded-lg border border-zinc-700 bg-zinc-900 p-6"
+        className="w-full max-w-sm space-y-4 rounded-lg border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800"
       >
-        <div className="flex items-center gap-2 text-zinc-100">
+        <div className="flex items-center gap-2 text-gray-900 dark:text-white">
           <KeyRound className="h-5 w-5" />
           <h1 className="text-lg font-semibold">Acesso de escrita</h1>
         </div>
-        <p className="text-sm text-zinc-400">
+        <p className="text-sm text-gray-600 dark:text-gray-400">
           Informe o token de escrita do dashboard para criar projetos, editar
           tasks e controlar execuções.
         </p>
@@ -57,9 +57,9 @@ function LoginForm() {
           onChange={(e) => setToken(e.target.value)}
           placeholder="Token"
           autoFocus
-          className="w-full rounded border border-zinc-600 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 focus:border-cyan-500 focus:outline-none"
+          className="w-full rounded border border-gray-300 px-3 py-2 text-sm focus:border-cyan-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
         />
-        {error && <p className="text-sm text-red-400">{error}</p>}
+        {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
         <button
           type="submit"
           disabled={checking || !token}

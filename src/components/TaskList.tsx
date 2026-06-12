@@ -100,7 +100,7 @@ function TaskActionsMenu({
           e.stopPropagation();
           setOpen((v) => !v);
         }}
-        className="text-gray-400 hover:text-gray-700 px-2 rounded"
+        className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 px-2 rounded"
         aria-haspopup="menu"
         aria-expanded={open}
         title="Ações da task"
@@ -109,7 +109,7 @@ function TaskActionsMenu({
       </button>
       {open && (
         <div
-          className="absolute right-0 mt-1 w-56 bg-white border border-gray-200 rounded-md shadow-lg z-20 py-1 text-left"
+          className="absolute right-0 mt-1 w-56 bg-white border border-gray-200 dark:bg-gray-800 dark:border-gray-700 rounded-md shadow-lg z-20 py-1 text-left"
           onClick={(e) => e.stopPropagation()}
           role="menu"
         >
@@ -118,20 +118,20 @@ function TaskActionsMenu({
               key={action}
               onClick={() => fire(action)}
               disabled={pending !== null}
-              className="block w-full text-left px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              className="block w-full text-left px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700 disabled:opacity-50"
               role="menuitem"
             >
               {ACTION_LABELS[action].label}
               {pending === action && '…'}
             </button>
           ))}
-          <div className="my-1 border-t border-gray-100" />
+          <div className="my-1 border-t border-gray-100 dark:border-gray-700" />
           <button
             onClick={() => {
               setOpen(false);
               onEdit(task);
             }}
-            className="block w-full text-left px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
+            className="block w-full text-left px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700"
             role="menuitem"
           >
             Editar task
@@ -141,7 +141,7 @@ function TaskActionsMenu({
               setOpen(false);
               onSplit(task);
             }}
-            className="block w-full text-left px-3 py-1.5 text-sm text-purple-700 hover:bg-purple-50"
+            className="block w-full text-left px-3 py-1.5 text-sm text-purple-700 hover:bg-purple-50 dark:text-purple-300 dark:hover:bg-purple-950"
             role="menuitem"
             title="Claude subdivide esta task em subtasks (via agente host)"
           >
@@ -149,13 +149,13 @@ function TaskActionsMenu({
           </button>
           <button
             onClick={remove}
-            className="block w-full text-left px-3 py-1.5 text-sm text-red-600 hover:bg-red-50"
+            className="block w-full text-left px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/50"
             role="menuitem"
           >
             Excluir task
           </button>
           {error && (
-            <div className="px-3 py-1 text-xs text-red-700 border-t border-gray-100">
+            <div className="px-3 py-1 text-xs text-red-700 dark:text-red-400 border-t border-gray-100 dark:border-gray-700">
               {error}
             </div>
           )}
@@ -264,12 +264,12 @@ export default function TaskList({ tasks, projectId, logEntries }: TaskListProps
       {projectId && (
         <div className="flex items-center justify-end gap-3">
           {splitCmdId && (
-            <span className="text-xs text-purple-600">
+            <span className="text-xs text-purple-600 dark:text-purple-300">
               Claude dividindo a task… (~1 min)
             </span>
           )}
           {splitError && (
-            <span className="text-xs text-red-600">{splitError}</span>
+            <span className="text-xs text-red-600 dark:text-red-400">{splitError}</span>
           )}
           <button
             onClick={() => setCreating(true)}

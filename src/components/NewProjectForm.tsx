@@ -66,37 +66,37 @@ export default function NewProjectForm() {
   return (
     <form
       onSubmit={handleSubmit}
-      className="max-w-xl space-y-4 rounded-xl border border-gray-200 bg-white p-6 shadow-sm"
+      className="max-w-xl space-y-4 rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800"
     >
       <label className="block text-sm">
-        <span className="text-gray-700">ID do projeto *</span>
+        <span className="text-gray-700 dark:text-gray-300">ID do projeto *</span>
         <input
           value={id}
           onChange={(e) => setId(e.target.value)}
           placeholder="meu-app"
           required
           autoFocus
-          className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm font-mono"
+          className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm font-mono dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
         />
         {id && !idValid && (
-          <span className="text-xs text-red-600">
+          <span className="text-xs text-red-600 dark:text-red-400">
             minúsculas, dígitos e hífens; começa com letra/dígito
           </span>
         )}
       </label>
 
       <label className="block text-sm">
-        <span className="text-gray-700">Nome</span>
+        <span className="text-gray-700 dark:text-gray-300">Nome</span>
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder={id || 'Meu App'}
-          className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm"
+          className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
         />
       </label>
 
       <label className="block text-sm">
-        <span className="text-gray-700">Repositório</span>
+        <span className="text-gray-700 dark:text-gray-300">Repositório</span>
         <input
           value={effectiveRepo}
           onChange={(e) => {
@@ -104,25 +104,25 @@ export default function NewProjectForm() {
             setRepoPath(e.target.value);
           }}
           placeholder={`${REPO_ROOT}/meu-app`}
-          className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm font-mono"
+          className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm font-mono dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
         />
       </label>
 
       <div className="grid grid-cols-2 gap-4">
         <label className="block text-sm">
-          <span className="text-gray-700">Stack (csv)</span>
+          <span className="text-gray-700 dark:text-gray-300">Stack (csv)</span>
           <input
             value={stack}
             onChange={(e) => setStack(e.target.value)}
-            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm"
+            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
           />
         </label>
         <label className="block text-sm">
-          <span className="text-gray-700">Backend</span>
+          <span className="text-gray-700 dark:text-gray-300">Backend</span>
           <select
             value={backend}
             onChange={(e) => setBackend(e.target.value)}
-            className="mt-1 w-full rounded border border-gray-300 px-2 py-2 text-sm"
+            className="mt-1 w-full rounded border border-gray-300 px-2 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
           >
             {BACKENDS.map((b) => (
               <option key={b} value={b}>{b}</option>
@@ -131,7 +131,7 @@ export default function NewProjectForm() {
         </label>
       </div>
 
-      <label className="flex items-center gap-2 text-sm text-gray-700">
+      <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
         <input
           type="checkbox"
           checked={gitInit}
@@ -140,16 +140,16 @@ export default function NewProjectForm() {
         Inicializar repositório git (git init + commit vazio)
       </label>
 
-      {submitError && <p className="text-sm text-red-600">{submitError}</p>}
+      {submitError && <p className="text-sm text-red-600 dark:text-red-400">{submitError}</p>}
       {busy && (
-        <p className="text-sm text-blue-600">
+        <p className="text-sm text-blue-600 dark:text-blue-400">
           {poll.phase === 'pending'
             ? 'Aguardando o agente… (se demorar, verifique `squire agent` na VM)'
             : 'Criando projeto…'}
         </p>
       )}
       {poll.phase === 'failed' && (
-        <div className="rounded bg-red-50 p-3 text-sm text-red-700">
+        <div className="rounded bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/50 dark:text-red-300">
           <p className="font-medium">Falhou: {poll.error}</p>
           {poll.result?.stderr_tail && (
             <pre className="mt-1 max-h-32 overflow-auto text-xs">{poll.result.stderr_tail}</pre>
@@ -157,7 +157,7 @@ export default function NewProjectForm() {
         </div>
       )}
       {poll.phase === 'timeout' && (
-        <p className="text-sm text-red-600">
+        <p className="text-sm text-red-600 dark:text-red-400">
           Sem resposta do agente — confira se `squire agent` está rodando na VM.
         </p>
       )}
