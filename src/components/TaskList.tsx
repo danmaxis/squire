@@ -7,12 +7,20 @@ import { useCommandPoll } from '@/hooks/useCommandPoll';
 import BlockedTaskPanel from './BlockedTaskPanel';
 import TaskForm from './TaskForm';
 import { TASK_STATUS_LABELS } from '@/lib/statusMaps';
+import { taskCommands } from '@/lib/cliHints';
+import CommandChips from './CommandChips';
 import { HomologationLogEntry, Task } from '@/lib/types';
+
+export interface TaskListCliContext {
+  lockHeld: boolean;
+  resumableTaskId: string | null;
+}
 
 interface TaskListProps {
   tasks: Task[];
   projectId?: string;
   logEntries?: HomologationLogEntry[];
+  cliContext?: TaskListCliContext;
 }
 
 type TaskAction = 'retry' | 'approve' | 'skip';
@@ -204,7 +212,7 @@ const getHomologationLabel = (result: string | null) => {
   }
 };
 
-export default function TaskList({ tasks, projectId, logEntries }: TaskListProps) {
+export default function TaskList({ tasks, projectId, logEntries, cliContext }: TaskListProps) {
   const router = useRouter();
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set());
   const [formTask, setFormTask] = useState<Task | null>(null);
@@ -396,6 +404,20 @@ export default function TaskList({ tasks, projectId, logEntries }: TaskListProps
                   ) : null;
                 })()}
               </div>
+
+              {projectId &&
+                task.status !== 'blocked' &&
+                (() => {
+                  const hints = taskCommands(projectId, task, {
+                    lockHeld: cliContext?.lockHeld ?? false,
+                    resumableTaskId: cliContext?.resumableTaskId ?? null,
+                  });
+                  return hints.length > 0 ? (
+                    <div className="mt-4">
+                      <CommandChips hints={hints} />
+                    </div>
+                  ) : null;
+                })()}
 
               {task.status === 'blocked' && projectId ? (
                 <BlockedTaskPanel

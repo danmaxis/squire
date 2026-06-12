@@ -31,9 +31,9 @@ test.describe('run control com sessão ativa', () => {
 
   test('Run/Resume desabilitados; Kill habilitado no projeto do lock', async ({ page }) => {
     await page.goto('/projects/proj-active');
-    await expect(page.getByRole('button', { name: 'Run' })).toBeDisabled();
-    await expect(page.getByRole('button', { name: 'Resume' })).toBeDisabled();
-    await expect(page.getByRole('button', { name: 'Kill' })).toBeEnabled();
+    await expect(page.getByRole('button', { name: 'Run', exact: true })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Resume', exact: true })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Kill', exact: true })).toBeEnabled();
   });
 
   test('POST run devolve 409 com lock ativo', async ({ request }) => {
