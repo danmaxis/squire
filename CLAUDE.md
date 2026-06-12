@@ -1,7 +1,16 @@
 # CLAUDE.md — Squire Dashboard
 
-Dashboard Next.js 14 (App Router) que visualiza em tempo real o estado do squire.
-Lê arquivos JSON do filesystem (e escreve ack/dismiss de alertas via POST API).
+Dashboard Next.js 14 (App Router) que visualiza e **edita** o estado do squire.
+Lê arquivos JSON do filesystem; escreve alertas (ack/dismiss), tasks (CRUD),
+project.json e budget direto nos arquivos (lock-checked), e enfileira
+operações de host (criar projeto, run/resume/kill, planejar com Claude) em
+`/data/commands/pending/` para o **agente host** (`squire agent` rodando na
+VM — sem ele, essas operações ficam pendentes para sempre).
+
+Escrita exige `Authorization: Bearer $DASHBOARD_WRITE_TOKEN` (env no
+compose, valor no `.env` gitignored ao lado; sem env → 503). O usuário faz
+login em `/login`; o token vai para localStorage e `authedFetch` injeta.
+
 Deploy como container Docker **na VM Ai-Debian** via `docker compose up -d`
 (porta 3101, volume rw de /home/ai-debian/squire-state, user 1000:1000) —
 não no Unraid, que não enxerga o disco local da VM.
