@@ -177,13 +177,8 @@ class Squire:
         self.stats.tasks_completed_today += 1
         if task.skip_homologation:
             return
-        self.stats.tasks_homologated_today += 1
-        if task.homologation_attempt == 1:
-            self.stats.tasks_approved_first_try_today += 1
-        self.stats.approval_first_try_rate = round(
-            100.0 * self.stats.tasks_approved_first_try_today
-            / max(1, self.stats.tasks_homologated_today),
-            1,
+        accounting.record_homologated(
+            self.stats, first_try=task.homologation_attempt == 1
         )
 
     def _task_budget_exceeded(self, task) -> bool:

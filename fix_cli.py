@@ -253,6 +253,12 @@ def run_fix(project_id: str, task_id: str) -> int:
             task.completed_at = datetime.now(timezone.utc)
             task.claude_code_assisted = True
             ckpt.save_tasks(project_id, task_list)
+            # Conta na taxa de aprovação do dia (nunca first-try — a task
+            # já tinha esgotado rodadas antes de bloquear)
+            stats = ckpt.load_stats()
+            stats.tasks_completed_today += 1
+            accounting.record_homologated(stats, first_try=False)
+            ckpt.save_stats(stats)
             _record_event(
                 project_id, EventType.homologation_approved, task,
                 f"[fix] {result.summary or result.feedback[:200]}",

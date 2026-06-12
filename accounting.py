@@ -41,3 +41,19 @@ def record_usage(
     if task is not None:
         task.cost_usd = float(task.cost_usd or 0.0) + cost
     return cost
+
+
+def record_homologated(stats: GlobalStats, first_try: bool) -> None:
+    """Atualiza os contadores da taxa de aprovação após um veredito final.
+
+    Usado pelo loop do orquestrador e pelo `squire fix` (que nunca é
+    first-try — a task já queimou rodadas antes de bloquear).
+    """
+    stats.tasks_homologated_today += 1
+    if first_try:
+        stats.tasks_approved_first_try_today += 1
+    stats.approval_first_try_rate = round(
+        100.0 * stats.tasks_approved_first_try_today
+        / max(1, stats.tasks_homologated_today),
+        1,
+    )

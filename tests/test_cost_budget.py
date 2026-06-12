@@ -407,3 +407,25 @@ class TestApprovalFirstTryRate:
         assert s.stats.tasks_completed_today == 1
         assert s.stats.tasks_homologated_today == 0
         assert s.stats.approval_first_try_rate == 0.0
+
+
+class TestModelUsageFallback:
+    def test_model_vem_de_modelUsage_quando_topo_ausente(self):
+        from homologator import _extract_usage_from_claude_json
+        data = {
+            "total_cost_usd": 0.03,
+            "usage": {"input_tokens": 100, "output_tokens": 50},
+            "modelUsage": {"claude-opus-4-7": {"inputTokens": 100}},
+        }
+        u = _extract_usage_from_claude_json(data)
+        assert u.model == "claude-opus-4-7"
+
+    def test_model_topo_tem_precedencia(self):
+        from homologator import _extract_usage_from_claude_json
+        data = {
+            "total_cost_usd": 0.03,
+            "model": "claude-x",
+            "usage": {"input_tokens": 1, "output_tokens": 1},
+            "modelUsage": {"claude-y": {}},
+        }
+        assert _extract_usage_from_claude_json(data).model == "claude-x"

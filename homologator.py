@@ -41,6 +41,12 @@ def _extract_usage_from_claude_json(data: dict) -> Optional[TokenUsage]:
     ct = int(usage.get("output_tokens", 0) or 0)
     cached = int(usage.get("cache_read_input_tokens", 0) or 0)
     model = data.get("model", "") or ""
+    # Versões recentes do claude --print não trazem "model" no topo, só as
+    # chaves de "modelUsage" — sem isto o cost_by_model fica vazio para sempre
+    if not model:
+        model_usage = data.get("modelUsage")
+        if isinstance(model_usage, dict) and model_usage:
+            model = next(iter(model_usage))
     cost = float(data.get("total_cost_usd", 0.0) or 0.0)
     # Fallback: se Claude não reportou custo mas reportou tokens, computa da tabela
     if cost == 0.0 and (pt or ct) and model:
