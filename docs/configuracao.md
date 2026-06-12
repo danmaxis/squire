@@ -90,6 +90,7 @@ Qualquer endpoint OpenAI-compatible serve: LiteLLM gateway, **Ollama**
 | `SQUIRE_MAX_HOMOLOG`    | `5`     | Rodadas máximas por task (default — override em `tasks.json`)   |
 | `SQUIRE_LOOP_DETECT`    | `3`     | Rejeições consecutivas com mesmo padrão → escalação forçada     |
 | `SQUIRE_NO_PROGRESS`    | `3`     | Ciclos sem arquivo modificado → escalação forçada               |
+| `SQUIRE_IMPLEMENT_TIMEOUT` | `600` | Timeout (s) do implement_directly (escalação/fix)               |
 
 ### Fila de comandos / agente
 

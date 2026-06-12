@@ -475,7 +475,7 @@ Cada arquivo deve ser completo e funcional. Não use TODOs nem esqueletos."""
                 cwd=str(self.project_path),
                 capture_output=True,
                 text=True,
-                timeout=300,  # 5 min — pode precisar escrever vários arquivos
+                timeout=config.IMPLEMENT_TIMEOUT_SECONDS,
             )
             if result.returncode != 0 or not result.stdout.strip():
                 print(
@@ -488,7 +488,10 @@ Cada arquivo deve ser completo e funcional. Não use TODOs nem esqueletos."""
             files = parse_and_apply_files(text, self.project_path)
             return files, usage
         except subprocess.TimeoutExpired:
-            print("⚠ implement_directly: claude excedeu o timeout de 300s")
+            print(
+                f"⚠ implement_directly: claude excedeu o timeout de "
+                f"{config.IMPLEMENT_TIMEOUT_SECONDS}s (SQUIRE_IMPLEMENT_TIMEOUT)"
+            )
             return [], None
         except FileNotFoundError:
             print(

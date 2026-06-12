@@ -78,6 +78,10 @@ CLAUDE_CODE_WINDOW_MINUTES = int(os.getenv("SQUIRE_CC_WINDOW_MIN", "30"))
 # Rodadas máximas por task (cada rodada = inner loop até 10 + 1 homologação)
 MAX_HOMOLOGATION_ATTEMPTS = int(os.getenv("SQUIRE_MAX_HOMOLOG", "5"))
 
+# Timeout (s) do implement_directly — tasks de docs/multiarquivo podem
+# passar fácil dos 5 min de geração
+IMPLEMENT_TIMEOUT_SECONDS = int(os.getenv("SQUIRE_IMPLEMENT_TIMEOUT", "600"))
+
 # Quantas rejeições consecutivas com o mesmo padrão de erro disparam escalação imediata
 LOOP_DETECT_THRESHOLD = int(os.getenv("SQUIRE_LOOP_DETECT", "3"))
 

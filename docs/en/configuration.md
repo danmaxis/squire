@@ -89,6 +89,7 @@ llama.cpp server. In the current setup, it's Ollama on Zordon
 | `SQUIRE_MAX_HOMOLOG`    | `5`     | Max rounds per task (default — override in `tasks.json`)        |
 | `SQUIRE_LOOP_DETECT`    | `3`     | Consecutive rejections with same pattern → forced escalation    |
 | `SQUIRE_NO_PROGRESS`    | `3`     | Cycles without modified files → forced escalation               |
+| `SQUIRE_IMPLEMENT_TIMEOUT` | `600` | implement_directly timeout (s) (escalation/fix)                 |
 
 ### Command queue / agent
 
