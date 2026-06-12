@@ -17,6 +17,7 @@ const COMMAND_TYPES: CommandType[] = [
   'kill',
   'plan_tasks',
   'split_task',
+  'fix_task',
 ];
 const PROJECT_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const TASK_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -51,7 +52,7 @@ function validationError(body: EnqueueBody): string | null {
       return "mode deve ser 'append' ou 'replace'";
     }
   }
-  if (type === 'split_task') {
+  if (type === 'split_task' || type === 'fix_task') {
     if (!TASK_ID_RE.test((args.task_id as string) ?? '')) {
       return 'task_id inválido';
     }
@@ -75,9 +76,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'invalid_command', message: problem }, { status: 400 });
   }
 
-  // Pré-check de lock para run/resume: melhor 409 imediato na UI do que
-  // um comando que falha no agente segundos depois.
-  if (body.type === 'run' || body.type === 'resume') {
+  // Pré-check de lock para run/resume/fix: melhor 409 imediato na UI do que
+  // um comando que falha no agente segundos depois (o fix segura o lock).
+  if (body.type === 'run' || body.type === 'resume' || body.type === 'fix_task') {
     const lock = await readSessionLock();
     if (lock.held) {
       return NextResponse.json(

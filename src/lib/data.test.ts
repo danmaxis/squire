@@ -76,3 +76,17 @@ describe('getTasks normalization', () => {
     expect(t.cost_usd).toBe(0);
   });
 });
+
+describe('getHomologationLog', () => {
+  it('retorna entries do arquivo', async () => {
+    const { getHomologationLog } = await import('./data');
+    const entries = await getHomologationLog('minimal-template');
+    expect(entries).toHaveLength(1);
+    expect(entries[0].fix_suggestion).toBe('conserte X');
+  });
+
+  it('retorna vazio quando arquivo não existe', async () => {
+    const { getHomologationLog } = await import('./data');
+    expect(await getHomologationLog('nonexistent')).toEqual([]);
+  });
+});

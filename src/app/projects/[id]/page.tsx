@@ -1,6 +1,13 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { getProject, getTasks, getHistory, getCommits, getCheckpoint } from '@/lib/data';
+import {
+  getProject,
+  getTasks,
+  getHistory,
+  getCommits,
+  getCheckpoint,
+  getHomologationLog,
+} from '@/lib/data';
 import TaskList from '@/components/TaskList';
 import { Timeline } from '@/components/Timeline';
 import { CommitLog } from '@/components/CommitLog';
@@ -32,14 +39,16 @@ const statusLabels: Record<ProjectStatus, string> = {
 export default async function ProjectPage({ params }: { params: { id: string } }) {
   const { id } = params;
 
-  const [project, tasks, history, commits, checkpoint, lock] = await Promise.all([
-    getProject(id),
-    getTasks(id),
-    getHistory(id),
-    getCommits(id),
-    getCheckpoint(id),
-    readSessionLock(),
-  ]);
+  const [project, tasks, history, commits, checkpoint, lock, homologationLog] =
+    await Promise.all([
+      getProject(id),
+      getTasks(id),
+      getHistory(id),
+      getCommits(id),
+      getCheckpoint(id),
+      readSessionLock(),
+      getHomologationLog(id),
+    ]);
 
   if (!project) notFound();
 
@@ -112,13 +121,17 @@ export default async function ProjectPage({ params }: { params: { id: string } }
             <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
               Tasks ({tasks.length})
             </h2>
-            <TaskList tasks={tasks} projectId={project.id} />
+            <TaskList
+              tasks={tasks}
+              projectId={project.id}
+              logEntries={homologationLog}
+            />
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
             <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
               Histórico
             </h2>
-            <Timeline events={history} />
+            <Timeline events={history} logEntries={homologationLog} />
           </div>
         </div>
 

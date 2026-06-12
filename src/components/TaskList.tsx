@@ -4,12 +4,14 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { authedFetch } from '@/lib/clientApi';
 import { useCommandPoll } from '@/hooks/useCommandPoll';
+import BlockedTaskPanel from './BlockedTaskPanel';
 import TaskForm from './TaskForm';
-import { Task } from '@/lib/types';
+import { HomologationLogEntry, Task } from '@/lib/types';
 
 interface TaskListProps {
   tasks: Task[];
   projectId?: string;
+  logEntries?: HomologationLogEntry[];
 }
 
 type TaskAction = 'retry' | 'approve' | 'skip';
@@ -201,7 +203,7 @@ const getHomologationLabel = (result: string | null) => {
   }
 };
 
-export default function TaskList({ tasks, projectId }: TaskListProps) {
+export default function TaskList({ tasks, projectId, logEntries }: TaskListProps) {
   const router = useRouter();
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set());
   const [formTask, setFormTask] = useState<Task | null>(null);
@@ -402,17 +404,25 @@ export default function TaskList({ tasks, projectId }: TaskListProps) {
                 })()}
               </div>
 
-              {task.rejection_summaries.length > 0 && (
-                <div className="mt-4">
-                  <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-                    Rejeições
-                  </h4>
-                  <ul className="space-y-1">
-                    {task.rejection_summaries.map((summary, i) => (
-                      <li key={i} className="text-sm text-gray-700">{summary}</li>
-                    ))}
-                  </ul>
-                </div>
+              {task.status === 'blocked' && projectId ? (
+                <BlockedTaskPanel
+                  task={task}
+                  projectId={projectId}
+                  logEntries={logEntries ?? []}
+                />
+              ) : (
+                task.rejection_summaries.length > 0 && (
+                  <div className="mt-4">
+                    <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                      Rejeições
+                    </h4>
+                    <ul className="space-y-1">
+                      {task.rejection_summaries.map((summary, i) => (
+                        <li key={i} className="text-sm text-gray-700">{summary}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )
               )}
 
               {task.subtasks.length > 0 && (

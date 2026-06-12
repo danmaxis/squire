@@ -80,10 +80,13 @@ async function getAlerts(): Promise<Alert[]> {
   return wrapper?.alerts ?? [];
 }
 
-function mapStatus(status: string): 'active' | 'completed' | 'on-hold' | 'failed' {
+function mapStatus(
+  status: string
+): 'active' | 'completed' | 'on-hold' | 'failed' | 'blocked' {
   if (status === 'implementing' || status === 'planning') return 'active';
   if (status === 'completed') return 'completed';
-  if (status === 'paused' || status === 'blocked') return 'on-hold';
+  if (status === 'blocked') return 'blocked';
+  if (status === 'paused') return 'on-hold';
   if (status === 'failed') return 'failed';
   return 'active';
 }
@@ -171,6 +174,7 @@ export default async function HomePage() {
                   status={mapStatus(project.status)}
                   completedTasks={completedTasks}
                   totalTasks={tasks.length}
+                  blockedTasks={tasks.filter((t) => t.status === 'blocked').length}
                   lastUpdated={new Date(project.updated_at)}
                 />
               </Link>

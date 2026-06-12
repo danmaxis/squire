@@ -13,6 +13,8 @@ import type {
   TaskList,
   History,
   CommitLog,
+  HomologationLog,
+  HomologationLogEntry,
 } from './types';
 
 const DATA_PATH =
@@ -104,4 +106,12 @@ export async function getGlobalStats(): Promise<GlobalStats | null> {
 export async function getCheckpoint(projectId: string): Promise<Checkpoint | null> {
   const checkpointPath = join(DATA_PATH, 'projects', projectId, 'checkpoint.json');
   return readJsonFile<Checkpoint>(checkpointPath);
+}
+
+export async function getHomologationLog(
+  projectId: string
+): Promise<HomologationLogEntry[]> {
+  const logPath = join(DATA_PATH, 'projects', projectId, 'homologation_log.json');
+  const data = await readJsonFile<HomologationLog>(logPath);
+  return data?.entries ?? [];
 }
