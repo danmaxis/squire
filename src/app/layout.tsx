@@ -6,6 +6,13 @@ import HealthStrip from "@/components/HealthStrip";
 
 const inter = Inter({ subsets: ["latin"] });
 
+// O chrome do layout (Sidebar + HealthStrip) lê o estado do squire no
+// filesystem a cada render. O build roda SEM o volume de dados — qualquer
+// rota prerenderizada congelaria sidebar vazia e sessão falsa (já mordeu
+// em /, /api/health e /projects/new). force-dynamic aqui se aplica a
+// todas as páginas; route handlers precisam do export próprio.
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "Squire Dashboard",
   description: "Visualização em tempo real do estado do squire",

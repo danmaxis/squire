@@ -1,3 +1,4 @@
+import { CURSOR_STEP_LABELS } from '@/lib/statusMaps';
 import type { Checkpoint, CursorStep } from '@/lib/types';
 import { RateLimitGauge } from './RateLimitGauge';
 
@@ -68,8 +69,11 @@ export function CheckpointPanel({ checkpoint }: CheckpointPanelProps) {
           <span className="text-sm font-medium text-gray-900">{currentTaskId}</span>
         </div>
         <div className="flex items-center gap-2">
-          <span className={`px-2 py-1 rounded text-xs font-medium ${stepColor}`}>
-            {cursor.step}
+          <span
+            className={`px-2 py-1 rounded text-xs font-medium ${stepColor}`}
+            title={cursor.step}
+          >
+            {CURSOR_STEP_LABELS[cursor.step] ?? cursor.step}
           </span>
           <span className="text-xs text-gray-600">
             Tentativa #{cursor.attempt}

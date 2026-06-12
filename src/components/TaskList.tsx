@@ -6,6 +6,7 @@ import { authedFetch, enqueueCommand } from '@/lib/clientApi';
 import { useCommandPoll } from '@/hooks/useCommandPoll';
 import BlockedTaskPanel from './BlockedTaskPanel';
 import TaskForm from './TaskForm';
+import { TASK_STATUS_LABELS } from '@/lib/statusMaps';
 import { HomologationLogEntry, Task } from '@/lib/types';
 
 interface TaskListProps {
@@ -300,8 +301,11 @@ export default function TaskList({ tasks, projectId, logEntries }: TaskListProps
             </div>
 
             <div className="flex items-center gap-2 text-sm flex-wrap justify-end">
-              <span className={`px-2 py-0.5 rounded text-xs font-medium ${getStatusColor(task.status)}`}>
-                {task.status}
+              <span
+                className={`px-2 py-0.5 rounded text-xs font-medium ${getStatusColor(task.status)}`}
+                title={task.status}
+              >
+                {TASK_STATUS_LABELS[task.status] ?? task.status}
               </span>
               <span className={`px-2 py-0.5 rounded text-xs font-medium ${getEffortColor(task.effort)}`}>
                 {getEffortLabel(task.effort)}

@@ -18,6 +18,7 @@ import RunControls from '@/components/RunControls';
 import { readSessionLock } from '@/lib/squireLock';
 import { TDDProgressBar } from '@/components/TDDProgressBar';
 import { RefreshController } from '@/components/RefreshController';
+import { PROJECT_STATUS_LABELS } from '@/lib/statusMaps';
 import type { ProjectStatus } from '@/lib/types';
 
 const statusColors: Record<ProjectStatus, string> = {
@@ -28,13 +29,7 @@ const statusColors: Record<ProjectStatus, string> = {
   completed:    'bg-green-100 text-green-700',
 };
 
-const statusLabels: Record<ProjectStatus, string> = {
-  planning:     'Planejamento',
-  implementing: 'Implementando',
-  reviewing:    'Revisão',
-  blocked:      'Bloqueado',
-  completed:    'Concluído',
-};
+
 
 export default async function ProjectPage({ params }: { params: { id: string } }) {
   const { id } = params;
@@ -93,7 +88,7 @@ export default async function ProjectPage({ params }: { params: { id: string } }
               </span>
             )}
             <span className={`px-3 py-1 rounded-full text-sm font-semibold ${statusColors[status] ?? 'bg-gray-100 text-gray-700'}`}>
-              {statusLabels[status] ?? status}
+              {PROJECT_STATUS_LABELS[status] ?? status}
             </span>
           </div>
         </div>

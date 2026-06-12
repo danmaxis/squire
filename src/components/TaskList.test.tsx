@@ -290,3 +290,12 @@ describe('TaskList', () => {
     expect(screen.getByText('Sub')).toBeInTheDocument();
   });
 });
+
+describe('chip de status traduzido', () => {
+  it('mostra label PT com enum cru no title', () => {
+    const task = createMockTask({ id: 'task-001', title: 'X', status: 'pending' });
+    render(<TaskList tasks={[task]} />);
+    expect(screen.getByText('pendente')).toBeInTheDocument();
+    expect(screen.queryByText('pending')).not.toBeInTheDocument();
+  });
+});

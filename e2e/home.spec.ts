@@ -8,7 +8,8 @@ test.describe('home', () => {
       page.getByRole('heading', { name: 'Projeto Bloqueado' })
     ).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Projeto Ativo' })).toBeVisible();
-    await expect(page.getByText('Bloqueado', { exact: true })).toBeVisible();
+    // aparece no card E na pill da sidebar (agora também em PT)
+    await expect(page.getByText('Bloqueado', { exact: true }).first()).toBeVisible();
     await expect(page.getByText('1 bloqueada')).toBeVisible();
   });
 
