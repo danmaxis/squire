@@ -18,6 +18,8 @@ import RunControls from '@/components/RunControls';
 import { readSessionLock } from '@/lib/squireLock';
 import { TDDProgressBar } from '@/components/TDDProgressBar';
 import { RefreshController } from '@/components/RefreshController';
+import CommandChips from '@/components/CommandChips';
+import { isResumable, projectCommands } from '@/lib/cliHints';
 import { PROJECT_STATUS_LABELS } from '@/lib/statusMaps';
 import type { ProjectStatus } from '@/lib/types';
 
@@ -60,6 +62,11 @@ export default async function ProjectPage({ params }: { params: { id: string } }
       checkpoint.cursor.step as 'red_phase' | 'llm_execution' | 'testing' | 'homologation'
     );
 
+  const cliHints = projectCommands({ project, tasks, lock, checkpoint });
+  const resumableTaskId = isResumable(checkpoint, project, lock)
+    ? checkpoint!.cursor.current_task_id
+    : null;
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
@@ -93,6 +100,16 @@ export default async function ProjectPage({ params }: { params: { id: string } }
           </div>
         </div>
 
+        {/* Comandos de desobstrução (contextuais ao estado) */}
+        {cliHints.length > 0 && (
+          <section className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2">
+              Comandos
+            </h2>
+            <CommandChips hints={cliHints} />
+          </section>
+        )}
+
         {/* Live TDD progress (only when a task is actively running) */}
         {showTDD && currentTask && checkpoint && (
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
@@ -120,6 +137,7 @@ export default async function ProjectPage({ params }: { params: { id: string } }
               tasks={tasks}
               projectId={project.id}
               logEntries={homologationLog}
+              cliContext={{ lockHeld: lock.held, resumableTaskId }}
             />
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">

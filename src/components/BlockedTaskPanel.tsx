@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { ChevronDown, ChevronRight, Wrench } from 'lucide-react';
 import { enqueueCommand } from '@/lib/clientApi';
 import { useCommandPoll } from '@/hooks/useCommandPoll';
+import { taskCommands } from '@/lib/cliHints';
+import CommandChips from './CommandChips';
 import type { HomologationLogEntry, Task } from '@/lib/types';
 
 interface BlockedTaskPanelProps {
@@ -149,6 +151,13 @@ export default function BlockedTaskPanel({
           {busy ? 'Corrigindo…' : 'Corrigir com Claude'}
         </button>
       </div>
+
+      <CommandChips
+        hints={taskCommands(projectId, task, {
+          lockHeld: false,
+          resumableTaskId: null,
+        })}
+      />
 
       {busy && (
         <p className="text-sm text-purple-600 dark:text-purple-300">
