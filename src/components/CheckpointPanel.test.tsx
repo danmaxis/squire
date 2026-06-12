@@ -66,7 +66,9 @@ describe('CheckpointPanel', () => {
 
     expect(screen.getByText('Tarefa:')).toBeInTheDocument();
     expect(screen.getByText('task-xyz')).toBeInTheDocument();
-    expect(screen.getByText('red_phase')).toBeInTheDocument();
+    // label PT do statusMaps; enum cru fica no title
+    expect(screen.getByText('teste (RED)')).toBeInTheDocument();
+    expect(screen.getByTitle('red_phase')).toBeInTheDocument();
     expect(screen.getByText('Tentativa #3')).toBeInTheDocument();
     expect(screen.getByText('Homologação #2')).toBeInTheDocument();
   });

@@ -1,7 +1,31 @@
 import Link from 'next/link';
-import { readSessionLock } from '@/lib/squireLock';
+import { readSessionLock, type LockStatus } from '@/lib/squireLock';
 import { getAlerts, getGlobalStats, getProjects, getCheckpoint } from '@/lib/data';
 import type { RateLimitState } from '@/lib/types';
+
+export interface SessionStatusView {
+  dot: string;
+  label: string;
+  detail: string;
+}
+
+/** Copy do indicador de sessão — puro, para teste unitário. */
+export function sessionStatus(
+  lock: Pick<LockStatus, 'held' | 'holder' | 'projectId' | 'acquiredAt'>
+): SessionStatusView {
+  if (lock.held) {
+    return {
+      dot: 'bg-green-500',
+      label: 'Squire ativo',
+      // o projeto rodando importa mais que o id da sessão
+      detail: lock.projectId ?? lock.holder ?? '?',
+    };
+  }
+  if (lock.acquiredAt) {
+    return { dot: 'bg-gray-400', label: 'Squire ocioso', detail: 'lock expirado' };
+  }
+  return { dot: 'bg-gray-300', label: 'Squire ocioso', detail: 'nenhuma sessão ativa' };
+}
 
 async function gatherBudget(): Promise<{
   spent: number;
@@ -31,11 +55,7 @@ export default async function HealthStrip() {
   const activeAlerts = alerts.filter((a) => !a.acknowledged).length;
   const budget = await gatherBudget();
 
-  const status = lock.held
-    ? { dot: 'bg-green-500', label: 'Squire ativo', detail: lock.holder ?? '?' }
-    : lock.acquiredAt
-    ? { dot: 'bg-gray-400', label: 'Squire ocioso', detail: 'lock expirado' }
-    : { dot: 'bg-gray-300', label: 'Sem sessão', detail: 'sem lock' };
+  const status = sessionStatus(lock);
 
   let budgetClass = 'text-gray-600';
   let budgetLabel = budget && budget.cap > 0

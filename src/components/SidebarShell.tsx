@@ -13,6 +13,7 @@ import {
   Hammer,
   Eye,
 } from "lucide-react";
+import { PROJECT_STATUS_LABELS } from "@/lib/statusMaps";
 import type { Project, ProjectStatus } from "@/lib/types";
 
 interface SidebarShellProps {
@@ -21,31 +22,26 @@ interface SidebarShellProps {
 
 const statusConfig: Record<
   ProjectStatus,
-  { label: string; pill: string; icon: JSX.Element }
+  { pill: string; icon: JSX.Element }
 > = {
   planning: {
-    label: "Planning",
-    pill: "bg-gray-100 text-gray-700",
+        pill: "bg-gray-100 text-gray-700",
     icon: <Clock className="w-3 h-3" />,
   },
   implementing: {
-    label: "Implementing",
-    pill: "bg-indigo-100 text-indigo-700",
+        pill: "bg-indigo-100 text-indigo-700",
     icon: <Hammer className="w-3 h-3" />,
   },
   reviewing: {
-    label: "Reviewing",
-    pill: "bg-amber-100 text-amber-800",
+        pill: "bg-amber-100 text-amber-800",
     icon: <Eye className="w-3 h-3" />,
   },
   blocked: {
-    label: "Blocked",
-    pill: "bg-red-100 text-red-700",
+        pill: "bg-red-100 text-red-700",
     icon: <AlertCircle className="w-3 h-3" />,
   },
   completed: {
-    label: "Completed",
-    pill: "bg-blue-100 text-blue-700",
+        pill: "bg-blue-100 text-blue-700",
     icon: <CheckCircle className="w-3 h-3" />,
   },
 };
@@ -57,7 +53,7 @@ function StatusPill({ status }: { status: ProjectStatus }) {
       className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium ${cfg.pill}`}
     >
       {cfg.icon}
-      {cfg.label}
+      {PROJECT_STATUS_LABELS[status]}
     </span>
   );
 }

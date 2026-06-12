@@ -12,11 +12,6 @@ import { getCheckpoint } from '@/lib/data';
 import { DATA_PATH } from '@/lib/squireStatePath';
 import type { Alert, RateLimitState } from '@/lib/types';
 
-// A página lê o estado do squire no filesystem a cada request — sem isto o
-// Next prerenderiza estático no build (que roda SEM o volume de dados) e a
-// home mostra para sempre o snapshot vazio do build.
-export const dynamic = 'force-dynamic';
-
 interface ProjectJson {
   id: string;
   name: string;
