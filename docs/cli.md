@@ -526,6 +526,8 @@ Description=Squire command agent
 
 [Service]
 ExecStart=/home/ai-debian/squire/squire agent
+Environment=SQUIRE_COMMAND_TIMEOUT=1200
+Environment=PATH=/home/ai-debian/.local/bin:/home/ai-debian/.opencode/bin:/usr/local/bin:/usr/bin:/bin
 Restart=on-failure
 
 [Install]
