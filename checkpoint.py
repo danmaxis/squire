@@ -18,7 +18,8 @@ from pydantic import BaseModel
 
 from models import (
     Alert, AlertList, AlertSeverity, Checkpoint, CommitLog, GlobalStats,
-    History, HistoryEvent, Project, SessionLock, TaskList,
+    History, HistoryEvent, HomologationLog, HomologationLogEntry, Project,
+    SessionLock, TaskList,
 )
 import config
 
@@ -112,6 +113,41 @@ def append_event(project_id: str, event: HistoryEvent) -> None:
     history = load_history(project_id)
     history.append(event)
     save_history(project_id, history)
+
+
+# ── Homologation log ───────────────────────────────────────────────
+
+# Vereditos completos por task são limitados para o arquivo não crescer
+# sem fim; 50 rodadas por task é muito acima de qualquer uso real.
+HOMOLOG_LOG_CAP_PER_TASK = 50
+
+
+def load_homologation_log(project_id: str) -> HomologationLog:
+    result = load_model(
+        config.project_dir(project_id) / "homologation_log.json", HomologationLog
+    )
+    return result or HomologationLog()
+
+
+def save_homologation_log(project_id: str, log: HomologationLog) -> None:
+    save_model(config.project_dir(project_id) / "homologation_log.json", log)
+
+
+def append_homologation_entry(project_id: str, entry: HomologationLogEntry) -> None:
+    """Adiciona um veredito ao log, mantendo as últimas N entradas por task."""
+    log = load_homologation_log(project_id)
+    log.entries.append(entry)
+    same_task = [e for e in log.entries if e.task_id == entry.task_id]
+    if len(same_task) > HOMOLOG_LOG_CAP_PER_TASK:
+        excess = len(same_task) - HOMOLOG_LOG_CAP_PER_TASK
+        kept, dropped = [], 0
+        for e in log.entries:
+            if e.task_id == entry.task_id and dropped < excess:
+                dropped += 1
+                continue
+            kept.append(e)
+        log.entries = kept
+    save_homologation_log(project_id, log)
 
 
 # ── Session Lock ───────────────────────────────────────────────────

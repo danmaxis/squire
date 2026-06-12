@@ -173,6 +173,34 @@ class CommitLog(BaseModel):
     error: Optional[str] = None
 
 
+# ── Homologation log ───────────────────────────────────────────────
+
+class HomologationLogEntry(BaseModel):
+    """Veredito completo de uma rodada de homologação.
+
+    Diferente de Task.rejection_summaries (300 chars, usado pela detecção
+    de loops), aqui o feedback e o fix_suggestion são preservados na
+    íntegra — é o que o dashboard mostra na triagem de tasks bloqueadas
+    e o que `squire fix` usa como contexto. Erros de infra não viram
+    entrada (não são vereditos).
+    """
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    task_id: str
+    attempt: int = 0
+    approved: bool = False
+    summary: str = ""
+    feedback: str = ""
+    fix_suggestion: str = ""
+    suggestions: list[str] = []
+    source: str = "session"  # "session" (loop do orquestrador) | "fix" (squire fix)
+    cost_usd: float = 0.0
+    model: Optional[str] = None
+
+
+class HomologationLog(BaseModel):
+    entries: list[HomologationLogEntry] = []
+
+
 # ── Checkpoint ─────────────────────────────────────────────────────
 
 class Cursor(BaseModel):

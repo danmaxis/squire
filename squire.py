@@ -34,7 +34,7 @@ from pathlib import Path
 import checkpoint as ckpt
 import config
 from inner_loop import InnerLoop
-from homologator import Homologator, TechnicalEscalation
+from homologator import Homologator, HomologationResult, TechnicalEscalation
 from rate_limiter import RateLimiter
 from models import (
     Actor,
@@ -160,6 +160,29 @@ class Squire:
                 continue
             return result
         return result
+
+    def _log_verdict(self, task, result, source: str = "session") -> None:
+        """Persiste o veredito completo em homologation_log.json.
+
+        Erros de infra não chegam aqui (não são vereditos). O log preserva
+        feedback/fix_suggestion na íntegra — o que rejection_summaries trunca.
+        """
+        from models import HomologationLogEntry
+        try:
+            ckpt.append_homologation_entry(self.project_id, HomologationLogEntry(
+                task_id=task.id,
+                attempt=task.homologation_attempt,
+                approved=result.approved,
+                summary=result.summary or "",
+                feedback=result.feedback or "",
+                fix_suggestion=result.fix_suggestion or "",
+                suggestions=result.suggestions or [],
+                source=source,
+                cost_usd=result.usage.cost_usd if result.usage else 0.0,
+                model=(result.usage.model or None) if result.usage else None,
+            ))
+        except Exception as e:
+            log(f"Falha ao gravar homologation_log: {e}", "warn")
 
     def _record_completion_stats(self, task) -> None:
         """
@@ -945,6 +968,9 @@ class Squire:
                     "Auto-aprovado: skip_homologation=True", Actor.squire,
                 )
                 task.homologation_result = "approved"
+                self._log_verdict(task, HomologationResult(
+                    approved=True, summary="Auto-aprovado: skip_homologation=True",
+                ))
                 return True
 
             if self.dry_run:
@@ -1002,6 +1028,8 @@ class Squire:
                 continue
 
             verdict_log = result.summary or result.feedback[:100]
+
+            self._log_verdict(task, result)
 
             if result.approved:
                 log(f"Homologação aprovada! {verdict_log}", "ok")
