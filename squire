@@ -426,23 +426,22 @@ data = {
 open(path, "w").write(json.dumps(data, ensure_ascii=False, indent=2))
 PYEOF
 
-    # tasks.json — template comentado
-    cat > "$proj_dir/tasks.json" << 'TASKEOF'
-{
-  "tasks": [
-    {
-      "id": "task-001",
-      "title": "Setup inicial",
-      "description": "Descreva aqui o que deve ser feito. Seja específico: quais arquivos criar, qual comportamento esperado, quais testes devem passar.",
-      "status": "pending",
-      "max_attempts": 10,
-      "max_homologation_attempts": 5,
-      "skip_homologation": false,
-      "subtasks": []
-    }
-  ]
-}
-TASKEOF
+    # tasks.json — gerado pelo modelo Pydantic real (shape completo, nunca
+    # deriva do contrato que o dashboard espera)
+    "$SQUIRE_VENV" - "$SQUIRE_DIR" "$proj_dir/tasks.json" << 'PYEOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+from models import Task, TaskList
+task = Task(
+    id="task-001",
+    title="Setup inicial",
+    description=(
+        "Descreva aqui o que deve ser feito. Seja específico: quais arquivos "
+        "criar, qual comportamento esperado, quais testes devem passar."
+    ),
+)
+open(sys.argv[2], "w").write(TaskList(tasks=[task]).model_dump_json(indent=2))
+PYEOF
 
     local editor="${EDITOR:-nano}"
     ok "Projeto '$project' criado em $proj_dir"
