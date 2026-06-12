@@ -31,8 +31,10 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+import accounting
 import checkpoint as ckpt
 import config
+import gitops
 from inner_loop import InnerLoop
 from homologator import Homologator, HomologationResult, TechnicalEscalation
 from rate_limiter import RateLimiter
@@ -103,30 +105,12 @@ class Squire:
         """
         Contabiliza tokens/custo de uma chamada que já aconteceu.
 
-        Atualiza GlobalStats (custo total, custo por modelo, tokens) e — se task
-        for fornecida — Task.cost_usd. Retorna o custo registrado para uso em logs
-        e para passar a `rate_limiter.record_call(cost_usd=…)` no caller.
-
-        cc_call=True identifica chamadas ao Claude Code (contam para
-        daily_calls_unknown_cost quando usage.tokens_unknown).
+        Delega para accounting.record_usage (compartilhado com `squire fix`)
+        e acumula o custo da sessão. Retorna o custo registrado para uso em
+        logs e para passar a `rate_limiter.record_call(cost_usd=…)` no caller.
         """
-        if usage is None:
-            if cc_call:
-                self.stats.daily_calls_unknown_cost += 1
-            return 0.0
-        cost = max(0.0, float(usage.cost_usd or 0.0))
-        tokens = int(usage.prompt_tokens or 0) + int(usage.completion_tokens or 0)
-        self.stats.cost_estimate_usd += cost
-        self.stats.daily_tokens += tokens
+        cost = accounting.record_usage(self.stats, usage, task=task, cc_call=cc_call)
         self.session_cost_usd += cost
-        if usage.tokens_unknown and cc_call:
-            self.stats.daily_calls_unknown_cost += 1
-        if usage.model:
-            self.stats.cost_by_model[usage.model] = (
-                self.stats.cost_by_model.get(usage.model, 0.0) + cost
-            )
-        if task is not None:
-            task.cost_usd = float(task.cost_usd or 0.0) + cost
         return cost
 
     def _review_with_infra_retry(self, task, test_hashes):
@@ -254,7 +238,8 @@ class Squire:
             n_files = len(status.stdout.strip().splitlines())
             log(f"Working tree sujo ({n_files} arquivo(s)) — criando snapshot antes de {task_id}", "warn")
 
-            # Verificar se o repo tem commits — sem HEAD, git add/commit falham
+            # Verificar se o repo tem commits — snapshot só faz sentido com HEAD
+            # (sem HEAD, o primeiro commit deve ser da própria task, não do snapshot)
             has_commits = subprocess.run(
                 ["git", "rev-parse", "--verify", "HEAD"],
                 cwd=repo, capture_output=True, timeout=5,
@@ -263,15 +248,12 @@ class Squire:
                 log("Repo sem commits ainda — snapshot adiado (HEAD não existe)", "info")
                 return
 
-            subprocess.run(["git", "add", "-A"], cwd=repo, capture_output=True, timeout=15)
-            commit = subprocess.run(
-                ["git", "commit", "-m", f"chore: auto-snapshot before {task_id}"],
-                cwd=repo, capture_output=True, text=True, timeout=15,
-            )
-            if commit.returncode == 0:
-                log(f"Snapshot commitado: chore: auto-snapshot before {task_id}", "ok")
-            else:
-                log(f"Falha ao commitar snapshot: {commit.stderr[:100]}", "warn")
+            msg = f"chore: auto-snapshot before {task_id}"
+            outcome = gitops.commit_all(repo, msg)
+            if outcome == "committed":
+                log(f"Snapshot commitado: {msg}", "ok")
+            elif outcome.startswith("failed"):
+                log(f"Falha ao commitar snapshot: {outcome[8:][:100]}", "warn")
         except Exception as e:
             log(f"Erro ao criar snapshot: {e}", "warn")
 
@@ -283,44 +265,15 @@ class Squire:
         comece a trabalhar — impedindo que um `git checkout` do próximo ciclo
         reverta o código recém-aprovado.
         """
-        repo = self.project.repo_path
-        try:
-            status = subprocess.run(
-                ["git", "status", "--porcelain"],
-                cwd=repo, capture_output=True, text=True, timeout=10,
-            )
-            if status.returncode != 0 or not status.stdout.strip():
-                return  # nada para commitar
-
-            has_commits = subprocess.run(
-                ["git", "rev-parse", "--verify", "HEAD"],
-                cwd=repo, capture_output=True, timeout=5,
-            ).returncode == 0
-
-            msg = f"feat: [{task.id}] {task.title[:60]}"
-            if not has_commits:
-                # Primeiro commit do repo
-                subprocess.run(["git", "add", "-A"], cwd=repo, capture_output=True, timeout=15)
-                commit = subprocess.run(
-                    ["git", "commit", "-m", msg],
-                    cwd=repo, capture_output=True, text=True, timeout=15,
-                )
-            else:
-                subprocess.run(["git", "add", "-A"], cwd=repo, capture_output=True, timeout=15)
-                commit = subprocess.run(
-                    ["git", "commit", "-m", msg],
-                    cwd=repo, capture_output=True, text=True, timeout=15,
-                )
-
-            if commit.returncode == 0:
-                log(f"Task commitada: {msg}", "ok")
-                self._refresh_commits_json()
-            elif "nothing to commit" in commit.stdout + commit.stderr:
-                log("Nada para commitar (working tree já limpo)", "info")
-            else:
-                log(f"Falha ao commitar task: {commit.stderr[:100]}", "warn")
-        except Exception as e:
-            log(f"Erro ao commitar task: {e}", "warn")
+        msg = f"feat: [{task.id}] {task.title[:60]}"
+        outcome = gitops.commit_all(self.project.repo_path, msg)
+        if outcome == "committed":
+            log(f"Task commitada: {msg}", "ok")
+            self._refresh_commits_json()
+        elif outcome == "nothing":
+            log("Nada para commitar (working tree já limpo)", "info")
+        else:
+            log(f"Falha ao commitar task: {outcome[8:][:100]}", "warn")
 
     def _refresh_commits_json(self, limit: int = 100) -> None:
         """

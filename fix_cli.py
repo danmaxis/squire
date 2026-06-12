@@ -28,8 +28,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+import accounting
 import checkpoint as ckpt
 import config
+import gitops
 from homologator import Homologator, HomologationResult, TechnicalEscalation
 from inner_loop import InnerLoop
 from models import (
@@ -90,23 +92,15 @@ def build_rejection_context(project_id: str, task: Task) -> str:
 # ── Contabilidade ──────────────────────────────────────────────────
 
 def account_usage(usage: Optional[TokenUsage], task: Task) -> float:
-    """Versão standalone do Squire._account_call para o ciclo de fix."""
+    """Contabiliza uma chamada do ciclo de fix direto no global-stats.
+
+    Diferente do orquestrador (que mantém stats em memória durante a
+    sessão), aqui cada chamada carrega/persiste o arquivo — o fix roda
+    fora de sessão e o lock garante que não há outro escritor.
+    """
     stats = ckpt.load_stats()
     stats.daily_claude_code_calls += 1
-    cost = 0.0
-    if usage is not None:
-        cost = max(0.0, float(usage.cost_usd or 0.0))
-        stats.cost_estimate_usd += cost
-        stats.daily_tokens += int(usage.prompt_tokens or 0) + int(usage.completion_tokens or 0)
-        if usage.tokens_unknown:
-            stats.daily_calls_unknown_cost += 1
-        if usage.model:
-            stats.cost_by_model[usage.model] = (
-                stats.cost_by_model.get(usage.model, 0.0) + cost
-            )
-        task.cost_usd = float(task.cost_usd or 0.0) + cost
-    else:
-        stats.daily_calls_unknown_cost += 1
+    cost = accounting.record_usage(stats, usage, task=task, cc_call=True)
     ckpt.save_stats(stats)
     return cost
 
@@ -114,26 +108,13 @@ def account_usage(usage: Optional[TokenUsage], task: Task) -> float:
 # ── Git ────────────────────────────────────────────────────────────
 
 def commit_fix(repo_path: str, task: Task) -> None:
-    """Commita o resultado aprovado (versão guarded do _commit_task_completion)."""
-    try:
-        status = subprocess.run(
-            ["git", "status", "--porcelain"],
-            cwd=repo_path, capture_output=True, text=True, timeout=10,
-        )
-        if status.returncode != 0 or not status.stdout.strip():
-            return
-        subprocess.run(["git", "add", "-A"], cwd=repo_path, capture_output=True, timeout=15)
-        msg = f"fix: [{task.id}] {task.title[:60]}"
-        commit = subprocess.run(
-            ["git", "commit", "-m", msg],
-            cwd=repo_path, capture_output=True, text=True, timeout=15,
-        )
-        if commit.returncode == 0:
-            _log(f"Commitado: {msg}", "ok")
-        elif "nothing to commit" not in commit.stdout + commit.stderr:
-            _log(f"Falha ao commitar: {commit.stderr[:120]}", "warn")
-    except Exception as e:
-        _log(f"Erro no commit: {e}", "warn")
+    """Commita o resultado aprovado (mesmo guarded commit do orquestrador)."""
+    msg = f"fix: [{task.id}] {task.title[:60]}"
+    outcome = gitops.commit_all(repo_path, msg)
+    if outcome == "committed":
+        _log(f"Commitado: {msg}", "ok")
+    elif outcome.startswith("failed"):
+        _log(f"Falha ao commitar: {outcome[8:][:120]}", "warn")
 
 
 def recompute_project_status(project_id: str) -> None:
