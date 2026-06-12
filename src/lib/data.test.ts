@@ -58,3 +58,21 @@ describe('data.ts', () => {
     expect(tasks).toEqual([]);
   });
 });
+
+describe('getTasks normalization', () => {
+  it('preenche defaults em tasks.json mínimo (template antigo do wrapper)', async () => {
+    const { getTasks } = await import('./data');
+    const tasks = await getTasks('minimal-template');
+    expect(tasks).toHaveLength(1);
+    const t = tasks[0];
+    // campos presentes vencem
+    expect(t.id).toBe('task-001');
+    expect(t.description).toBe('template antigo do wrapper');
+    // campos ausentes recebem defaults — eram undefined e quebravam .length/.map
+    expect(t.rejection_summaries).toEqual([]);
+    expect(t.attempts).toBe(0);
+    expect(t.effort).toBe('medium');
+    expect(t.tdd).toBe(true);
+    expect(t.cost_usd).toBe(0);
+  });
+});

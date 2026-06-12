@@ -1,5 +1,6 @@
 import { promises as fs } from 'fs';
 import { join } from 'path';
+import { newTask } from './taskDefaults';
 import type {
   Project,
   Task,
@@ -66,7 +67,15 @@ export async function getProject(id: string): Promise<Project | null> {
 export async function getTasks(projectId: string): Promise<Task[]> {
   const tasksPath = join(DATA_PATH, 'projects', projectId, 'tasks.json');
   const data = await readJsonFile<TaskList>(tasksPath);
-  return data?.tasks ?? [];
+  // Normaliza contra tasks.json mínimos (templates antigos / edição manual):
+  // campos ausentes recebem os defaults do modelo Python, presentes vencem.
+  return (data?.tasks ?? []).map(
+    (raw) =>
+      ({
+        ...newTask({ id: raw.id ?? '', title: raw.title ?? '' }),
+        ...raw,
+      }) as Task
+  );
 }
 
 export async function getHistory(projectId: string): Promise<HistoryEvent[]> {
