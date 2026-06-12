@@ -76,6 +76,9 @@ locais para 1 do Claude Code**.
 | `alerts_cli.py`        | Subcomandos `squire alerts` (list/ack/rm)                               |
 | `doctor.py`            | `squire doctor` — health check do ambiente (+ `--fix` de locks mortos)  |
 | `agent_cli.py`         | `squire agent` — executa a fila de comandos do dashboard (`commands/`)  |
+| `fix_cli.py`           | `squire fix` — Claude corrige task bloqueada (ciclo completo)           |
+| `accounting.py`        | Contabilidade de custo/uso compartilhada (orquestrador + fix)            |
+| `gitops.py`            | Commits guarded compartilhados (snapshot, task, fix)                     |
 | `squire` (bash)        | Front-end CLI: dispatcha subcomandos, gerencia bg/lock/log              |
 
 > **Insight:** o boundary entre `squire.py` e `inner_loop.py` é importante.
@@ -125,7 +128,7 @@ crashar no meio, `squire resume` reposiciona o cursor exatamente onde parou.
 Os status do enum `TaskStatus` ([`models.py:25`](../models.py)) são: `pending`,
 `implementing`, `testing`, `homologating`, `completed`, `blocked`.
 
-Em paralelo ao status da task, o `Cursor` ([`models.py:178`](../models.py))
+Em paralelo ao status da task, o `Cursor` ([`models.py:206`](../models.py))
 rastreia o `CursorStep` corrente dentro de uma rodada: `planning`, `red_phase`
 (TDD: escrita de testes antes da implementação), `llm_execution`, `testing`,
 `homologation`, `completed`.
@@ -142,7 +145,7 @@ rastreia o `CursorStep` corrente dentro de uma rodada: `planning`, `red_phase`
    monta instrução, chama backend, roda testes. A cada 5 falhas, pede
    ajuda técnica ao Claude Code (`TechnicalEscalation.unblock`).
 4. **Gate mecânico** — antes de gastar uma call ao Claude Code,
-   `_pre_homologation_checks` ([`squire.py:672`](../squire.py)) roda
+   `_pre_homologation_checks` ([`squire.py:648`](../squire.py)) roda
    typecheckers/compiladores por linguagem (tsc, cargo check, mvn compile,
    go build, etc.) e detecta padrões anti-vibe-coding (`any`, `# type: ignore`,
    `unsafe`, `catch unreachable`). Falha → volta para o inner loop sem

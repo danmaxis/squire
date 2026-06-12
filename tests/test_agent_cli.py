@@ -224,3 +224,24 @@ class TestRunOnce:
         assert code == 0
         assert len(list((queue / "commands" / "done").glob("*.json"))) == 2
         assert list((queue / "commands" / "pending").glob("*.json")) == []
+
+
+# ── fix_task ─────────────────────────────────────────────────────────
+
+class TestFixTask:
+    def test_fix_task_argv(self, queue):
+        cmd = QueuedCommand(id="x", type=CommandType.fix_task, project_id="meu-app",
+                            args={"task_id": "task-007"})
+        argv = agent_cli.build_argv(cmd)
+        assert argv[2].endswith("fix_cli.py")
+        assert argv[3:] == ["meu-app", "task-007", "--yes"]
+
+    def test_fix_task_id_invalido(self, queue):
+        cmd = QueuedCommand(id="x", type=CommandType.fix_task, project_id="meu-app",
+                            args={"task_id": "x; rm -rf /"})
+        assert "task_id inválido" in agent_cli.validate(cmd)
+
+    def test_fix_task_projeto_inexistente(self, queue):
+        cmd = QueuedCommand(id="x", type=CommandType.fix_task, project_id="nao-existe",
+                            args={"task_id": "task-001"})
+        assert "não existe" in agent_cli.validate(cmd)

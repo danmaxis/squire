@@ -68,6 +68,28 @@ execução (não de veredito):
 Cada chamada real (incluindo o retry) é contabilizada em custo e rate
 limit normalmente.
 
+### Log de vereditos (`homologation_log.json`)
+
+Todo veredito (aprovações, rejeições e auto-aprovações de
+`skip_homologation` — nunca erros de infra) é persistido na íntegra em
+`projects/<id>/homologation_log.json`, com cap das últimas 50 entradas por
+task. Diferente de `Task.rejection_summaries` (resumos de 300 chars usados
+pela detecção de loops), aqui `feedback` e `fix_suggestion` ficam completos:
+
+```json
+{"entries": [{
+  "timestamp": "…", "task_id": "task-009", "attempt": 3,
+  "approved": false, "summary": "…",
+  "feedback": "<texto completo>", "fix_suggestion": "<passos completos>",
+  "suggestions": [], "source": "session",
+  "cost_usd": 0.042, "model": "claude-opus-4-7"
+}]}
+```
+
+`source` distingue vereditos do loop normal (`"session"`) dos do ciclo
+`squire fix` (`"fix"`). É a fonte do painel de triagem de tasks bloqueadas
+no dashboard e o contexto que o `squire fix` injeta na correção.
+
 ## Estrutura do veredito
 
 O Claude Code é invocado via `claude --print --output-format json`. Ele
@@ -105,7 +127,7 @@ Antes de gastar uma chamada Claude, o squire roda **verificações mecânicas
 locais** sobre o trabalho do LLM local. Se algo óbvio está errado, devolve
 para o inner loop com violations como feedback — sem queimar budget Claude.
 
-Implementação: `_pre_homologation_checks` ([`squire.py:672`](../squire.py)).
+Implementação: `_pre_homologation_checks` ([`squire.py:648`](../squire.py)).
 
 ### Por linguagem
 
@@ -169,7 +191,7 @@ sintoma de outra coisa.
 ### Loop de rejeição
 
 `Task.rejection_summaries` mantém as últimas 10 `summary` de rejeições.
-A função `_is_looping` ([`squire.py:398`](../squire.py)) verifica se as
+A função `_is_looping` ([`squire.py:374`](../squire.py)) verifica se as
 últimas N (default `SQUIRE_LOOP_DETECT=3`) rejeições compartilham 4+ palavras
 significativas:
 
@@ -246,7 +268,7 @@ Vale mencionar aqui porque também é uma chamada paga: na fase RED, se
 
 Quando o rate limit ativa entre rodadas (`can_afford` retorna `False`),
 o squire **não dorme**. Em vez disso, chama `_wait_productively`
-([`squire.py:650`](../squire.py)) que continua executando o inner loop
+([`squire.py:626`](../squire.py)) que continua executando o inner loop
 com o feedback acumulado da última rejeição:
 
 ```python

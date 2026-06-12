@@ -147,7 +147,7 @@ def validate(cmd: QueuedCommand) -> Optional[str]:
         if mode not in ("append", "replace"):
             return f"mode inválido: {mode!r}"
 
-    if cmd.type == CommandType.split_task:
+    if cmd.type in (CommandType.split_task, CommandType.fix_task):
         task_id = cmd.args.get("task_id", "")
         if not _TASK_ID_RE.match(task_id):
             return f"task_id inválido: {task_id!r}"
@@ -190,6 +190,10 @@ def build_argv(cmd: QueuedCommand) -> list[str]:
     if cmd.type == CommandType.split_task:
         return [str(VENV_PY), "-u", str(SQUIRE_DIR / "tasks_cli.py"),
                 "split", cmd.project_id, str(cmd.args["task_id"]), "--yes"]
+
+    if cmd.type == CommandType.fix_task:
+        return [str(VENV_PY), "-u", str(SQUIRE_DIR / "fix_cli.py"),
+                cmd.project_id, str(cmd.args["task_id"]), "--yes"]
 
     raise ValueError(f"tipo não suportado: {cmd.type}")
 
@@ -326,7 +330,7 @@ def main() -> None:
   {CYAN}squire agent --poll N{RESET}    Intervalo de polling em segundos
 
 Fila: $SQUIRE_STATE_ROOT/commands/{{pending,running,done}}/
-Tipos aceitos: new_project, run, resume, kill, plan_tasks, split_task
+Tipos aceitos: new_project, run, resume, kill, plan_tasks, split_task, fix_task
 """)
         return
     once = "--once" in args

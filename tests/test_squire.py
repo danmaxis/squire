@@ -420,13 +420,15 @@ class TestAutoSnapshotCommit:
     def test_faz_commit_quando_dirty_e_tem_commits(self):
         """Working tree sujo + repo com commits → cria commit de snapshot."""
         orch = make_squire()
-        side_effects = [
-            self._proc(stdout=" M src/index.ts\n?? tmp.py\n"),   # git status
-            self._proc(returncode=0),                              # git rev-parse HEAD
-            self._proc(),                                          # git add -A
-            self._proc(returncode=0),                              # git commit
-        ]
-        with patch("squire.subprocess.run", side_effect=side_effects) as mock_run:
+        # squire e gitops compartilham o mesmo módulo subprocess — um patch só,
+        # com a sequência completa (status+rev-parse no squire, status+add+commit no gitops)
+        with patch("squire.subprocess.run", side_effect=[
+            self._proc(stdout=" M src/index.ts\n?? tmp.py\n"),  # git status (squire)
+            self._proc(returncode=0),                             # git rev-parse HEAD
+            self._proc(stdout=" M src/index.ts\n?? tmp.py\n"),  # git status (gitops)
+            self._proc(),                                         # git add -A
+            self._proc(returncode=0),                             # git commit
+        ]) as mock_run:
             orch._auto_snapshot_commit("task-007")
 
         calls = [c.args[0] for c in mock_run.call_args_list]
@@ -454,13 +456,13 @@ class TestAutoSnapshotCommit:
 
         # Testar diretamente com side_effect funcional
         orch2 = make_squire()
-        with patch("squire.subprocess.run") as mock_run:
-            mock_run.side_effect = [
-                self._proc(stdout=" M main.py\n"),
-                self._proc(returncode=0),
-                self._proc(),
-                self._proc(returncode=0),
-            ]
+        with patch("squire.subprocess.run", side_effect=[
+            self._proc(stdout=" M main.py\n"),  # status (squire)
+            self._proc(returncode=0),             # rev-parse
+            self._proc(stdout=" M main.py\n"),  # status (gitops)
+            self._proc(),                         # add
+            self._proc(returncode=0),             # commit
+        ]) as mock_run:
             orch2._auto_snapshot_commit("task-abc")
 
         commit_call = next(
