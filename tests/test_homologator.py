@@ -343,3 +343,37 @@ class TestErrorKind:
         r = self._review(tmp_path, return_value=self._proc(stdout=envelope))
         assert r.error_kind is None
         assert r.approved is True
+
+
+# ── Parser tolerante a prosa em volta do JSON ────────────────────────
+
+class TestJsonExtractionFallback:
+    def _review_with_stdout(self, tmp_path, inner: str):
+        import json as _json
+        from models import LLMContextSummary, Task
+        h = make_homologator(tmp_path)
+        envelope = _json.dumps({"result": inner, "total_cost_usd": 0.01})
+        proc = MagicMock(returncode=0, stdout=envelope, stderr="")
+        with patch("homologator.subprocess.run", return_value=proc):
+            return h.review(task=Task(id="t", title="T"), context=LLMContextSummary())
+
+    def test_json_envolto_em_prosa_e_parseado(self, tmp_path):
+        inner = (
+            'Analisei o código com cuidado. Aqui está o veredito:\n\n'
+            '{"approved": true, "summary": "ok", "feedback": "f"}\n\n'
+            'Espero que ajude!'
+        )
+        r = self._review_with_stdout(tmp_path, inner)
+        assert r.error is None
+        assert r.approved is True
+        assert r.summary == "ok"
+
+    def test_chaves_falsas_antes_do_json_real(self, tmp_path):
+        inner = 'O objeto {invalido} precede {"approved": false, "summary": "s", "feedback": "f"}'
+        r = self._review_with_stdout(tmp_path, inner)
+        assert r.error is None
+        assert r.approved is False
+
+    def test_sem_json_continua_infra_error(self, tmp_path):
+        r = self._review_with_stdout(tmp_path, "só prosa, nenhum objeto aqui")
+        assert r.error_kind == "infra"

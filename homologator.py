@@ -55,6 +55,25 @@ def _extract_usage_from_claude_json(data: dict) -> Optional[TokenUsage]:
     )
 
 
+def _extract_json_object(text: str) -> Optional[dict]:
+    """Extrai o primeiro objeto JSON válido embutido em texto livre.
+
+    Tenta raw_decode a partir de cada '{' — cobre respostas em que o
+    modelo envolve o JSON do veredito em prosa.
+    """
+    decoder = json.JSONDecoder()
+    idx = text.find("{")
+    while idx != -1:
+        try:
+            obj, _ = decoder.raw_decode(text, idx)
+            if isinstance(obj, dict):
+                return obj
+        except json.JSONDecodeError:
+            pass
+        idx = text.find("{", idx + 1)
+    return None
+
+
 @dataclass
 class HomologationResult:
     """Resultado da homologação pelo Claude Code."""
@@ -343,7 +362,15 @@ Responda APENAS com JSON válido, sem markdown:
                 if clean.startswith("```"):
                     clean = clean.split("\n", 1)[1]
                     clean = clean.rsplit("```", 1)[0]
-                review = json.loads(clean)
+                try:
+                    review = json.loads(clean)
+                except json.JSONDecodeError:
+                    # Claude às vezes envolve o JSON em prosa ("Aqui está a
+                    # análise: {...}") — extrai o primeiro objeto JSON válido
+                    # em vez de queimar a rodada com Parse error.
+                    review = _extract_json_object(clean)
+                    if review is None:
+                        raise
             elif isinstance(content, dict):
                 review = content
             else:
