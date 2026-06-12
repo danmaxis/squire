@@ -465,7 +465,9 @@ Implemente a task completa. Retorne os arquivos no formato:
 // conteúdo completo do arquivo
 ```
 
-Cada arquivo deve ser completo e funcional. Não use TODOs nem esqueletos."""
+Cada arquivo deve ser completo e funcional. Não use TODOs nem esqueletos.
+MESMO que a correção seja pequena (uma linha, um campo), retorne o arquivo
+INTEIRO modificado nesse formato — respostas em prosa ou diff são descartadas."""
 
         self._vlog("→", prompt)
         try:
@@ -486,6 +488,9 @@ Cada arquivo deve ser completo e funcional. Não use TODOs nem esqueletos."""
             self._vlog("←", result.stdout)
             text, usage = _unwrap_claude_json(result.stdout)
             files = parse_and_apply_files(text, self.project_path)
+            if not files:
+                preview = (text or "")[:300].replace("\n", " ")
+                print(f"⚠ implement_directly: resposta sem blocos filepath — início: {preview!r}")
             return files, usage
         except subprocess.TimeoutExpired:
             print(
