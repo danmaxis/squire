@@ -68,6 +68,29 @@ The review result carries an `error_kind` classifying execution failures
 Every real call (including the retry) is accounted for in cost and rate
 limiting as usual.
 
+### Verdict log (`homologation_log.json`)
+
+Every verdict (approvals, rejections, and `skip_homologation`
+auto-approvals — never infra errors) is persisted in full to
+`projects/<id>/homologation_log.json`, capped at the last 50 entries per
+task. Unlike `Task.rejection_summaries` (300-char summaries used by loop
+detection), `feedback` and `fix_suggestion` are kept complete:
+
+```json
+{"entries": [{
+  "timestamp": "…", "task_id": "task-009", "attempt": 3,
+  "approved": false, "summary": "…",
+  "feedback": "<full text>", "fix_suggestion": "<full steps>",
+  "suggestions": [], "source": "session",
+  "cost_usd": 0.042, "model": "claude-opus-4-7"
+}]}
+```
+
+`source` distinguishes verdicts from the normal loop (`"session"`) from
+the `squire fix` cycle (`"fix"`). This file powers the dashboard's
+blocked-task triage panel and is the context `squire fix` injects into
+the correction.
+
 ## Verdict structure
 
 Claude Code is invoked via `claude --print --output-format json`. It
@@ -107,7 +130,7 @@ the inner loop with violations as feedback — without burning Claude
 budget.
 
 Implementation: `_pre_homologation_checks`
-([`squire.py:672`](../../squire.py)).
+([`squire.py:648`](../../squire.py)).
 
 ### Per-language
 
@@ -171,7 +194,7 @@ something else.
 ### Rejection loop
 
 `Task.rejection_summaries` keeps the last 10 rejection `summary`s.
-`_is_looping` ([`squire.py:398`](../../squire.py)) checks whether the
+`_is_looping` ([`squire.py:374`](../../squire.py)) checks whether the
 last N (default `SQUIRE_LOOP_DETECT=3`) rejections share 4+ significant
 words:
 
@@ -249,7 +272,7 @@ if `task.test_author=claude` (default), Claude writes the tests. See
 
 When rate limit activates between rounds (`can_afford` returns `False`),
 squire **does not sleep**. Instead, it calls `_wait_productively`
-([`squire.py:650`](../../squire.py)) which keeps running the inner
+([`squire.py:626`](../../squire.py)) which keeps running the inner
 loop with the accumulated last-rejection feedback:
 
 ```python

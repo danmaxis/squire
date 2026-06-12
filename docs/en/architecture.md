@@ -77,6 +77,9 @@ Costs ~1000× more per call than tier 1, so the goal is a ratio of
 | `alerts_cli.py`        | `squire alerts` subcommands (list/ack/rm)                               |
 | `doctor.py`            | `squire doctor` — environment health check (+ `--fix` for dead locks)   |
 | `agent_cli.py`         | `squire agent` — executes the dashboard command queue (`commands/`)     |
+| `fix_cli.py`           | `squire fix` — Claude fixes a blocked task (full cycle)                 |
+| `accounting.py`        | Shared cost/usage accounting (orchestrator + fix)                        |
+| `gitops.py`            | Shared guarded commits (snapshot, task, fix)                             |
 | `squire` (bash)        | CLI front-end: dispatches subcommands, manages bg/lock/log              |
 
 > **Insight:** the boundary between `squire.py` and `inner_loop.py` is
@@ -130,7 +133,7 @@ where it left off. Statuses from the `TaskStatus` enum
 `testing`, `homologating`, `completed`, `blocked`.
 
 In parallel with task status, the `Cursor`
-([`models.py:178`](../../models.py)) tracks the current `CursorStep`
+([`models.py:206`](../../models.py)) tracks the current `CursorStep`
 within a round: `planning`, `red_phase` (TDD: writing tests before
 implementation), `llm_execution`, `testing`, `homologation`, `completed`.
 
@@ -148,7 +151,7 @@ implementation), `llm_execution`, `testing`, `homologation`, `completed`.
    instruction, call backend, run tests. Every 5 failures, ask Claude
    Code for help (`TechnicalEscalation.unblock`).
 4. **Mechanical gate** — before spending a Claude Code call,
-   `_pre_homologation_checks` ([`squire.py:672`](../../squire.py)) runs
+   `_pre_homologation_checks` ([`squire.py:648`](../../squire.py)) runs
    typecheckers/compilers per language (tsc, cargo check, mvn compile,
    go build, etc.) and detects anti-vibe-coding patterns (`any`,
    `# type: ignore`, `unsafe`, `catch unreachable`). Failure → back to

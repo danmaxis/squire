@@ -32,10 +32,10 @@ For each call (Claude Code or local backend), squire records:
   (e.g., opencode/crush CLI)
 
 These fields live in the `TokenUsage` struct
-([`models.py:316`](../../models.py)).
+([`models.py:345`](../../models.py)).
 
 Accounting is centralized in `Squire._account_call`
-([`squire.py:102`](../../squire.py)) which:
+([`squire.py:104`](../../squire.py)) which:
 
 1. Adds `cost_usd` to `GlobalStats.cost_estimate_usd` (daily accumulated)
 2. Adds `tokens` to `GlobalStats.daily_tokens`

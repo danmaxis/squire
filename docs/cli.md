@@ -14,7 +14,7 @@ no script bash `squire` (raiz do repo); cada subcomando é uma função
 - [Execução](#execução): `run` · `bg` · `resume` · `dry`
 - [Observação](#observação): `status` · `log` · `doctor`
 - [Controle](#controle): `kill` · `unlock`
-- [Recuperação](#recuperação): `unblock` · `reset`
+- [Recuperação](#recuperação): `unblock` · `reset` · `fix`
 - [Alertas](#alertas): `alerts list|ack|rm`
 - [Tasks](#tasks): `tasks list|add|edit|rm|split|plan`
 - [Projeto](#projeto): `new` · `projects` · `rm`
@@ -226,6 +226,35 @@ $ squire reset squire-dashboard task-005
 > O squire faz auto-commit após cada task aprovada, então geralmente só
 > a task corrente é perdida — mas confirme com `git status` no repo antes.
 
+### `squire fix <projeto> <task-id>`
+
+Ciclo completo de correção para uma task **bloqueada** (delegado para
+`fix_cli.py`): o Claude Code implementa a correção diretamente — usando os
+vereditos completos do `homologation_log.json` como contexto (fallback:
+`rejection_summaries`) e com proibição explícita de tocar em arquivos de
+teste — os testes do projeto rodam, e **uma** rodada de homologação decide:
+
+- **Aprovada** → task vira `completed` (`claude_code_assisted=true`),
+  commit `fix: [task-id] título`, e o status do projeto é recalculado
+  (sem bloqueios restantes → sai de `blocked`).
+- **Rejeitada** → permanece `blocked`, com o veredito novo gravado no log
+  (`source: "fix"`) para triagem humana.
+
+Segura o session lock durante o ciclo (recusa rodar com sessão ativa).
+Custo típico: 2-3 chamadas Claude (~$0.10–0.30); tudo contabilizado no
+`global-stats.json`. É o que o botão **"Corrigir com Claude"** do
+dashboard executa, via fila do agente (`fix_task`).
+
+| Exit code | Significado                                  |
+| --------- | -------------------------------------------- |
+| 0         | Aprovada e concluída                         |
+| 1         | Projeto/task não encontrado                  |
+| 2         | Task não está `blocked`                      |
+| 3         | Session lock ativo                           |
+| 4         | Claude não escreveu arquivos                 |
+| 5         | Erro de infra na homologação (task intocada) |
+| 6         | Correção rejeitada (permanece blocked)       |
+
 ## Alertas
 
 Subcomandos delegados para `alerts_cli.py`. Alertas são gerados pelo squire
@@ -415,7 +444,7 @@ Para confirmar, digite exatamente: my-api echo
 
 > **Insight:** o uso de palavra do alfabeto NATO (alpha, bravo, charlie, ...
 > zulu) evita `rm` acidental por copy-paste do histórico — você precisa ler
-> o prompt para saber qual palavra digitar. Veja [`squire.py:1294`](../squire.py).
+> o prompt para saber qual palavra digitar. Veja [`squire.py:1275`](../squire.py).
 
 ## Orçamento
 
@@ -479,8 +508,8 @@ planejar tasks com Claude) vira um arquivo em
 (rename atômico para `running/`), executa e responde em `done/<uuid>.json`.
 
 - Whitelist estrita: `new_project`, `run`, `resume`, `kill`, `plan_tasks`,
-  `split_task` — com validação de `project_id`/args e argv em lista (nunca
-  shell).
+  `split_task`, `fix_task` — com validação de `project_id`/args e argv em
+  lista (nunca shell).
 - `--once` processa a fila e sai (útil em testes/cron); sem flag, loop
   contínuo com poll de 2s.
 - Instância única via pidfile (`commands/agent.pid`).
