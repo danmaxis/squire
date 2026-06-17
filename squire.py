@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import random
+import re
 import shutil
 import subprocess
 import sys
@@ -31,15 +32,19 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+import accounting
 import checkpoint as ckpt
 import config
+import gitops
 from inner_loop import InnerLoop
-from homologator import Homologator, TechnicalEscalation
+from homologator import Homologator, HomologationResult, TechnicalEscalation
 from rate_limiter import RateLimiter
 from models import (
     Actor,
     AlertSeverity,
     Checkpoint,
+    CommitLog,
+    CommitSummary,
     CursorStep,
     Cursor,
     EventType,
@@ -56,6 +61,23 @@ def log(msg: str, level: str = "info") -> None:
     ts = datetime.now().astimezone().strftime("%H:%M:%S")
     prefix = {"info": "→", "ok": "✓", "warn": "⚠", "error": "✗"}
     print(f"[{ts}] {prefix.get(level, '→')} {msg}")
+
+
+# Sinais de que uma task precisa de Docker, que NÃO está disponível no
+# container workspace (Docker-in-Docker é adiado atrás de escalação ao
+# humano — ver docs/estado-e-recuperacao.md). Quando o inner loop esbarra
+# nisso, bloqueamos a task com um alerta em vez de queimar tentativas.
+_CONTAINER_BUILD_SIGNALS = re.compile(
+    r"cannot connect to the docker daemon"
+    r"|\bdocker(?:[- ]compose)?\b[^\n]*not found"
+    r"|docker\.sock",
+    re.IGNORECASE,
+)
+
+
+def _needs_container_build(*texts: str | None) -> bool:
+    """True se algum texto indica tentativa de usar Docker (indisponível)."""
+    return any(t and _CONTAINER_BUILD_SIGNALS.search(t) for t in texts)
 
 
 class Squire:
@@ -85,6 +107,10 @@ class Squire:
         self.escalation = TechnicalEscalation(self.project.repo_path, verbose=verbose)
         self.rate_limiter = RateLimiter(self.cp.rate_limit)
 
+        # Setado quando o inner loop detecta necessidade de build de container
+        # (Docker indisponível) → bloqueia a task e escala ao humano.
+        self._container_escalation = False
+
         # Stats
         self.stats = ckpt.load_stats()
         # Contadores desta sessão apenas (não persistidos no global-stats)
@@ -101,31 +127,81 @@ class Squire:
         """
         Contabiliza tokens/custo de uma chamada que já aconteceu.
 
-        Atualiza GlobalStats (custo total, custo por modelo, tokens) e — se task
-        for fornecida — Task.cost_usd. Retorna o custo registrado para uso em logs
-        e para passar a `rate_limiter.record_call(cost_usd=…)` no caller.
-
-        cc_call=True identifica chamadas ao Claude Code (contam para
-        daily_calls_unknown_cost quando usage.tokens_unknown).
+        Delega para accounting.record_usage (compartilhado com `squire fix`)
+        e acumula o custo da sessão. Retorna o custo registrado para uso em
+        logs e para passar a `rate_limiter.record_call(cost_usd=…)` no caller.
         """
-        if usage is None:
-            if cc_call:
-                self.stats.daily_calls_unknown_cost += 1
-            return 0.0
-        cost = max(0.0, float(usage.cost_usd or 0.0))
-        tokens = int(usage.prompt_tokens or 0) + int(usage.completion_tokens or 0)
-        self.stats.cost_estimate_usd += cost
-        self.stats.daily_tokens += tokens
+        cost = accounting.record_usage(self.stats, usage, task=task, cc_call=cc_call)
         self.session_cost_usd += cost
-        if usage.tokens_unknown and cc_call:
-            self.stats.daily_calls_unknown_cost += 1
-        if usage.model:
-            self.stats.cost_by_model[usage.model] = (
-                self.stats.cost_by_model.get(usage.model, 0.0) + cost
-            )
-        if task is not None:
-            task.cost_usd = float(task.cost_usd or 0.0) + cost
         return cost
+
+    def _review_with_infra_retry(self, task, test_hashes):
+        """
+        Chama o review do homologador com um retry gratuito para falhas de
+        infra (parse error, timeout, stdout vazio) — a rodada de homologação
+        não é consumida pelo retry, só pelo veredito. Cada chamada real é
+        contabilizada individualmente (custo + rate limit).
+        """
+        result = None
+        for attempt in range(2):
+            result = self.homologator.review(
+                task=task,
+                context=self.cp.llm_context,
+                attempt=task.homologation_attempt,
+                test_hashes=test_hashes,
+            )
+            cost = self._account_call(result.usage, task=task, cc_call=True)
+            self.rate_limiter.record_call(cost_usd=cost)
+            self.stats.daily_claude_code_calls += 1
+            self.session_cc_calls += 1
+
+            if (
+                result.error
+                and getattr(result, "error_kind", None) == "infra"
+                and attempt == 0
+                and self.rate_limiter.can_afford(config.ESTIMATED_CALL_COST_USD)
+            ):
+                log(f"Falha de infra na homologação ({result.error}) — retry gratuito 1/1", "warn")
+                time.sleep(10)
+                continue
+            return result
+        return result
+
+    def _log_verdict(self, task, result, source: str = "session") -> None:
+        """Persiste o veredito completo em homologation_log.json.
+
+        Erros de infra não chegam aqui (não são vereditos). O log preserva
+        feedback/fix_suggestion na íntegra — o que rejection_summaries trunca.
+        """
+        from models import HomologationLogEntry
+        try:
+            ckpt.append_homologation_entry(self.project_id, HomologationLogEntry(
+                task_id=task.id,
+                attempt=task.homologation_attempt,
+                approved=result.approved,
+                summary=result.summary or "",
+                feedback=result.feedback or "",
+                fix_suggestion=result.fix_suggestion or "",
+                suggestions=result.suggestions or [],
+                source=source,
+                cost_usd=result.usage.cost_usd if result.usage else 0.0,
+                model=(result.usage.model or None) if result.usage else None,
+            ))
+        except Exception as e:
+            log(f"Falha ao gravar homologation_log: {e}", "warn")
+
+    def _record_completion_stats(self, task) -> None:
+        """
+        Atualiza contadores diários após uma task concluída, incluindo a
+        taxa de aprovação na 1ª homologação. Tasks com skip_homologation
+        ficam de fora da taxa (são auto-aprovadas e inflariam o número).
+        """
+        self.stats.tasks_completed_today += 1
+        if task.skip_homologation:
+            return
+        accounting.record_homologated(
+            self.stats, first_try=task.homologation_attempt == 1
+        )
 
     def _task_budget_exceeded(self, task) -> bool:
         """True se o custo acumulado da task ultrapassou seu cap (Task.max_usd ou global)."""
@@ -179,7 +255,8 @@ class Squire:
             n_files = len(status.stdout.strip().splitlines())
             log(f"Working tree sujo ({n_files} arquivo(s)) — criando snapshot antes de {task_id}", "warn")
 
-            # Verificar se o repo tem commits — sem HEAD, git add/commit falham
+            # Verificar se o repo tem commits — snapshot só faz sentido com HEAD
+            # (sem HEAD, o primeiro commit deve ser da própria task, não do snapshot)
             has_commits = subprocess.run(
                 ["git", "rev-parse", "--verify", "HEAD"],
                 cwd=repo, capture_output=True, timeout=5,
@@ -188,15 +265,12 @@ class Squire:
                 log("Repo sem commits ainda — snapshot adiado (HEAD não existe)", "info")
                 return
 
-            subprocess.run(["git", "add", "-A"], cwd=repo, capture_output=True, timeout=15)
-            commit = subprocess.run(
-                ["git", "commit", "-m", f"chore: auto-snapshot before {task_id}"],
-                cwd=repo, capture_output=True, text=True, timeout=15,
-            )
-            if commit.returncode == 0:
-                log(f"Snapshot commitado: chore: auto-snapshot before {task_id}", "ok")
-            else:
-                log(f"Falha ao commitar snapshot: {commit.stderr[:100]}", "warn")
+            msg = f"chore: auto-snapshot before {task_id}"
+            outcome = gitops.commit_all(repo, msg)
+            if outcome == "committed":
+                log(f"Snapshot commitado: {msg}", "ok")
+            elif outcome.startswith("failed"):
+                log(f"Falha ao commitar snapshot: {outcome[8:][:100]}", "warn")
         except Exception as e:
             log(f"Erro ao criar snapshot: {e}", "warn")
 
@@ -208,43 +282,67 @@ class Squire:
         comece a trabalhar — impedindo que um `git checkout` do próximo ciclo
         reverta o código recém-aprovado.
         """
+        msg = f"feat: [{task.id}] {task.title[:60]}"
+        outcome = gitops.commit_all(self.project.repo_path, msg)
+        if outcome == "committed":
+            log(f"Task commitada: {msg}", "ok")
+            self._refresh_commits_json()
+        elif outcome == "nothing":
+            log("Nada para commitar (working tree já limpo)", "info")
+        else:
+            log(f"Falha ao commitar task: {outcome[8:][:100]}", "warn")
+
+    def _refresh_commits_json(self, limit: int = 100) -> None:
+        """
+        Recompila projects/<id>/commits.json a partir do git log do repo.
+
+        O dashboard lê este arquivo em vez de fazer git log no container —
+        evita shell-exec em runtime, ignora repos sem .git e mantém
+        diff_summary acessível para a UI.
+
+        Sempre escreve o arquivo, mesmo em falha: o dashboard depende disso
+        para diferenciar "projeto recém-criado, sem commits" de "arquivo
+        sumiu". Em falha, `CommitLog.error` carrega o motivo.
+        """
         repo = self.project.repo_path
+        commits: list[CommitSummary] = []
+        error: Optional[str] = None
         try:
-            status = subprocess.run(
-                ["git", "status", "--porcelain"],
+            fmt = "%H%x1f%s%x1f%aI%x1f"
+            log_out = subprocess.run(
+                ["git", "log", f"-n{limit}", f"--format={fmt}", "--name-only"],
                 cwd=repo, capture_output=True, text=True, timeout=10,
             )
-            if status.returncode != 0 or not status.stdout.strip():
-                return  # nada para commitar
-
-            has_commits = subprocess.run(
-                ["git", "rev-parse", "--verify", "HEAD"],
-                cwd=repo, capture_output=True, timeout=5,
-            ).returncode == 0
-
-            msg = f"feat: [{task.id}] {task.title[:60]}"
-            if not has_commits:
-                # Primeiro commit do repo
-                subprocess.run(["git", "add", "-A"], cwd=repo, capture_output=True, timeout=15)
-                commit = subprocess.run(
-                    ["git", "commit", "-m", msg],
-                    cwd=repo, capture_output=True, text=True, timeout=15,
-                )
+            if log_out.returncode != 0:
+                stderr = log_out.stderr.strip()[:200] or f"exit {log_out.returncode}"
+                error = f"git log falhou: {stderr}"
             else:
-                subprocess.run(["git", "add", "-A"], cwd=repo, capture_output=True, timeout=15)
-                commit = subprocess.run(
-                    ["git", "commit", "-m", msg],
-                    cwd=repo, capture_output=True, text=True, timeout=15,
-                )
-
-            if commit.returncode == 0:
-                log(f"Task commitada: {msg}", "ok")
-            elif "nothing to commit" in commit.stdout + commit.stderr:
-                log("Nada para commitar (working tree já limpo)", "info")
-            else:
-                log(f"Falha ao commitar task: {commit.stderr[:100]}", "warn")
+                for block in log_out.stdout.split("\n\n"):
+                    block = block.strip()
+                    if not block:
+                        continue
+                    header, _, files_block = block.partition("\n")
+                    parts = header.split("\x1f")
+                    if len(parts) < 3:
+                        continue
+                    sha, message, ts = parts[0], parts[1], parts[2]
+                    files = [ln for ln in files_block.split("\n") if ln.strip()]
+                    try:
+                        when = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                    except ValueError:
+                        when = datetime.now(timezone.utc)
+                    commits.append(CommitSummary(
+                        sha=sha,
+                        message=message,
+                        timestamp=when,
+                        diff_summary=f"{len(files)} arquivo(s) alterado(s)",
+                        files_changed=files,
+                    ))
         except Exception as e:
-            log(f"Erro ao commitar task: {e}", "warn")
+            error = f"{type(e).__name__}: {e}"
+            log(f"Falha ao gerar commits.json: {e}", "warn")
+
+        ckpt.save_commits(self.project.id, CommitLog(commits=commits, error=error))
 
     # ── Buscar próxima task ────────────────────────────────────────
 
@@ -470,6 +568,30 @@ class Squire:
 
             # Checkpoint após cada iteração
             self._save_state()
+
+            # ── Seam Docker-in-Docker: build de container exige humano ──
+            # Docker não está disponível no workspace (montar o socket do host
+            # erodiria a contenção). Se o backend/testes tentaram usar Docker,
+            # bloqueia a task e escala em vez de queimar as tentativas restantes.
+            if not result.success and _needs_container_build(result.test_output, result.error):
+                self._container_escalation = True
+                task.status = TaskStatus.blocked
+                ckpt.add_alert(
+                    self.project_id,
+                    "requires_container_build",
+                    f"Task '{task.title}' precisa de build/execução de container "
+                    f"(Docker). Docker-in-Docker está adiado — um humano deve "
+                    f"buildar/verificar a imagem manualmente.",
+                    task_id=task.id,
+                    severity=AlertSeverity.critical,
+                )
+                self._record_event(
+                    EventType.escalation_created, task.id, task.attempts,
+                    "Build de container necessário — escalado ao humano (DinD adiado)",
+                )
+                log("Build de container necessário — task bloqueada e escalada", "error")
+                self._save_state()
+                return False
 
             if result.error:
                 log(f"Erro fatal no inner loop: {result.error}", "error")
@@ -785,6 +907,7 @@ class Squire:
         """
         last_feedback = ""  # feedback acumulado da última rejeição
         gate_failures = 0   # violações mecânicas consecutivas sem CC call
+        self._container_escalation = False  # reset por-task
 
         # ── Fase RED: escrever testes antes da implementação ──
         test_hashes: dict[str, str] | None = None
@@ -820,6 +943,10 @@ class Squire:
             task.attempts = 0
             self._run_inner_loop(task, homologation_feedback=last_feedback, test_hashes=test_hashes)
             # Resultado dos testes é ignorado: sempre avança para homologação
+            # Exceto: se o inner loop escalou por build de container, a task já
+            # foi bloqueada e alertada — encerra as rodadas imediatamente.
+            if self._container_escalation:
+                return False
 
             # Pausa para garantir que o Qwen terminou antes do claude --print
             time.sleep(5)
@@ -840,6 +967,9 @@ class Squire:
                     "Auto-aprovado: skip_homologation=True", Actor.squire,
                 )
                 task.homologation_result = "approved"
+                self._log_verdict(task, HomologationResult(
+                    approved=True, summary="Auto-aprovado: skip_homologation=True",
+                ))
                 return True
 
             if self.dry_run:
@@ -878,16 +1008,7 @@ class Squire:
                 self._wait_productively(task, last_feedback, test_hashes=test_hashes)
                 continue
 
-            result = self.homologator.review(
-                task=task,
-                context=self.cp.llm_context,
-                attempt=task.homologation_attempt,
-                test_hashes=test_hashes,
-            )
-            cost = self._account_call(result.usage, task=task, cc_call=True)
-            self.rate_limiter.record_call(cost_usd=cost)
-            self.stats.daily_claude_code_calls += 1
-            self.session_cc_calls += 1
+            result = self._review_with_infra_retry(task, test_hashes)
 
             self._save_state()
 
@@ -898,9 +1019,16 @@ class Squire:
                     task.homologation_attempt,
                     f"Erro: {result.error}", Actor.claude_code,
                 )
+                if result.error_kind == "config":
+                    # Erro de configuração não se resolve repetindo rodadas
+                    # (ex: binário ausente) — bloqueia a task imediatamente.
+                    log("Erro de configuração — abortando homologações desta task", "error")
+                    return False
                 continue
 
             verdict_log = result.summary or result.feedback[:100]
+
+            self._log_verdict(task, result)
 
             if result.approved:
                 log(f"Homologação aprovada! {verdict_log}", "ok")
@@ -1008,7 +1136,7 @@ class Squire:
         config.ensure_dirs()
 
         # Adquirir lock
-        if not ckpt.acquire_lock(self.session_id):
+        if not ckpt.acquire_lock(self.session_id, self.project_id):
             log("Outra sessão está ativa. Abortando.", "error")
             sys.exit(1)
 
@@ -1022,6 +1150,11 @@ class Squire:
 
         self._start_heartbeat()
         self.project.status = ProjectStatus.implementing
+
+        # Garante que commits.json exista desde a primeira sessão. Sem isto,
+        # projetos recém-criados nunca têm o arquivo até a primeira task
+        # concluída, e o dashboard mascara ENOENT como "lista vazia".
+        self._refresh_commits_json()
 
         try:
             while True:
@@ -1055,7 +1188,7 @@ class Squire:
                     self._commit_task_completion(task)
                     task.status = TaskStatus.completed
                     task.completed_at = datetime.now(timezone.utc)
-                    self.stats.tasks_completed_today += 1
+                    self._record_completion_stats(task)
                     self._record_event(
                         EventType.task_completed, task.id,
                         summary=f"Aprovada na homologação #{task.homologation_attempt}",
@@ -1069,6 +1202,10 @@ class Squire:
                     except Exception as _pe:
                         log(f"Falha ao atualizar progress.txt: {_pe}", "warn")
                     self._log_remaining_tasks()
+                elif self._container_escalation:
+                    # Task já foi bloqueada + alertada (requires_container_build)
+                    # no seam do inner loop; não adicionar o alerta genérico.
+                    log(f"Task escalada para build de container (humano): {task.title}", "warn")
                 else:
                     task.status = TaskStatus.blocked
                     ckpt.add_alert(

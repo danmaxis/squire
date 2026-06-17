@@ -12,12 +12,14 @@ there. For tasks, it delegates to `tasks_cli.py`.
 ## Table of contents
 
 - [Execution](#execution): `run` · `bg` · `resume` · `dry`
-- [Observation](#observation): `status` · `log`
+- [Observation](#observation): `status` · `log` · `doctor`
 - [Control](#control): `kill` · `unlock`
-- [Recovery](#recovery): `unblock` · `reset`
+- [Recovery](#recovery): `unblock` · `reset` · `fix`
+- [Alerts](#alerts): `alerts list|ack|rm`
 - [Tasks](#tasks): `tasks list|add|edit|rm|split|plan`
 - [Project](#project): `new` · `projects` · `rm`
 - [Budget](#budget): `budget` · `budget set` · `budget reset`
+- [Agent](#agent): `agent`
 - [Help](#help)
 
 ## Execution
@@ -36,10 +38,10 @@ checkpoint, and processes all pending tasks in order.
 **Example:**
 
 ```bash
-$ squire run orchestrator-dashboard
-→ Iniciando squire para 'orchestrator-dashboard'...
+$ squire run squire-dashboard
+→ Iniciando squire para 'squire-dashboard'...
 [14:22:01] → Sessão iniciada: sess-20260511-1422-a3f4c1
-[14:22:01] → Projeto: Orchestrator Dashboard (orchestrator-dashboard)
+[14:22:01] → Projeto: Squire Dashboard (squire-dashboard)
 [14:22:01] → ==================================================
 [14:22:01] → Task [task-001]: Setup Next.js scaffolding
 [14:22:01] → ==================================================
@@ -59,8 +61,8 @@ Like `run` but in background via `nohup`, with stdout redirected to
 `/tmp/squire.log`. Follow with `squire log`.
 
 ```bash
-$ squire bg orchestrator-dashboard
-→ Iniciando 'orchestrator-dashboard' em background → /tmp/squire.log
+$ squire bg squire-dashboard
+→ Iniciando 'squire-dashboard' em background → /tmp/squire.log
 ✓ Rodando com PID 28471
   Acompanhe com: squire log
 ```
@@ -71,8 +73,8 @@ Resumes an interrupted session from the checkpoint. Add `bg` to resume
 in background.
 
 ```bash
-$ squire resume orchestrator-dashboard
-→ Retomando 'orchestrator-dashboard' do checkpoint...
+$ squire resume squire-dashboard
+→ Retomando 'squire-dashboard' do checkpoint...
 [14:35:12] → session_resumed
 [14:35:12] → Cursor: task-003, step=homologation, attempt 2/5
 ```
@@ -106,11 +108,11 @@ $ squire status
 ✓ Sessão ativa: sess-20260511-1422-a3f4c1 (PID 28471)
 
 === Projetos ===
-  orchestrator-dashboard  status=implementing  tasks=4/11
+  squire-dashboard  status=implementing  tasks=4/11
   pilotinho               status=completed     tasks=8/8
 
 === Rate limit ===
-  orchestrator-dashboard: 3/10 calls  (janela reseta em 18.4min)
+  squire-dashboard: 3/10 calls  (janela reseta em 18.4min)
 
 === Budget ===
   Hoje: $1.247 / $10.00  (12% usado)  |  tokens: 24,381
@@ -127,6 +129,37 @@ $ squire log
 [14:42:08] →   ┊→ ## Task: Add CommitLog component
 ...
 ```
+
+### `squire doctor [--fix]`
+
+Environment health check (delegated to `doctor.py`). Verifies everything
+a session needs to run and prints `[ OK ]/[WARN]/[FAIL]/[INFO]` per item.
+Exits with code 1 if there's any FAIL.
+
+Checks: writable state root · LLM endpoint reachable + configured models
+available · `claude` binary on PATH (+version) · binaries for backends in
+use (`opencode`/`crush`) · `session.lock` (pid alive? TTL expired?) ·
+`llm.lock` (flock held?) · per-project sanity (git repo, dirty working
+tree, blocked tasks, dead-but-resumable session) · pending alerts ·
+`global-stats.json` freshness.
+
+```bash
+$ squire doctor
+squire doctor
+
+Estado
+  [ OK ] state root  /home/ai-debian/squire-state
+
+LLM local
+  [ OK ] LLM endpoint  http://192.168.50.24:11434/v1
+  [ OK ] modelo 'journal-synth:latest'  disponível
+...
+10 ok · 1 warn · 0 fail
+```
+
+`--fix` applies only safe cleanups: removes a `session.lock` whose pid is
+provably dead and the `llm.lock` file when the flock is free. It never
+removes locks held by living processes.
 
 ## Control
 
@@ -168,7 +201,7 @@ unblocks all blocked tasks. Clears `rejection_summaries` and
 `no_progress_streak` to prevent immediate loop-detection retriggering.
 
 ```bash
-$ squire unblock orchestrator-dashboard task-005
+$ squire unblock squire-dashboard task-005
   ✓ task-005 → pending  (Add commit log empty state)
 
 1 task(s) desbloqueada(s).
@@ -183,12 +216,12 @@ Resets tasks to `pending` **and** discards work with `git reset HEAD` +
 in the project. Also clears the checkpoint cursor.
 
 ```bash
-$ squire reset orchestrator-dashboard task-005
+$ squire reset squire-dashboard task-005
   ✓ task-005 → pending  (Add commit log empty state)
 
 1 task(s) resetada(s).
   ✓ checkpoint cursor resetado
-⚠ Limpando git state em /home/ai-debian/projects/orchestrator-dashboard
+⚠ Limpando git state em /home/ai-debian/projects/squire-dashboard
 ✓ git checkout -- . OK
 ```
 
@@ -197,6 +230,86 @@ $ squire reset orchestrator-dashboard task-005
 > Squire auto-commits after every approved task, so usually only the
 > current task's work is lost — but confirm with `git status` in the
 > repo before.
+
+### `squire fix <project> <task-id>`
+
+Full fix cycle for a **blocked** task (delegated to `fix_cli.py`): Claude
+Code implements the correction directly — using the full verdicts from
+`homologation_log.json` as context (fallback: `rejection_summaries`) and
+with an explicit prohibition on touching test files — the project's tests
+run, and **one** homologation round decides:
+
+- **Approved** → task becomes `completed` (`claude_code_assisted=true`),
+  commit `fix: [task-id] title`, and the project status is recomputed
+  (no remaining blocks → leaves `blocked`).
+- **Rejected** → stays `blocked`, with the new verdict written to the log
+  (`source: "fix"`) for human triage.
+
+Holds the session lock for the whole cycle (refuses to run while a
+session is active). Typical cost: 2-3 Claude calls (~$0.10–0.30), all
+accounted in `global-stats.json`. This is what the dashboard's
+**"Corrigir com Claude"** button runs, via the agent queue (`fix_task`).
+
+| Exit code | Meaning                                       |
+| --------- | --------------------------------------------- |
+| 0         | Approved and completed                        |
+| 1         | Project/task not found                        |
+| 2         | Task is not `blocked`                         |
+| 3         | Session lock held                             |
+| 4         | Claude wrote no files                         |
+| 5         | Infra error during homologation (task untouched) |
+| 6         | Fix rejected (stays blocked)                  |
+
+## Alerts
+
+Subcommands delegated to `alerts_cli.py`. Alerts are generated by squire
+in cases like `max_homologations_reached` and exceeded budget, and live in
+`$SQUIRE_STATE_ROOT/alerts.json` until acknowledged or removed.
+
+### `squire alerts list [--all] [--project <id>]`
+
+Lists pending (unacknowledged) alerts with a 1-based index, severity,
+project/task, age, and message. `--all` also includes acknowledged ones
+(without index); `--project` filters by project.
+
+```bash
+$ squire alerts list
+Alertas pendentes (2):
+  1  CRIT  claw-code-study/task-026a  71d  max_homologations_reached: Task '...' falhou 5 homologações
+  2  CRIT  semanario-infantil/task-009  65d  max_homologations_reached: Task '...' falhou 5 homologações
+```
+
+`squire alerts` with no subcommand is an alias for `list`.
+
+### `squire alerts ack <n> [<n>…] | --all [--project <id>] [--task <id>]`
+
+Marks alerts as acknowledged (`acknowledged: true` — the same field the
+dashboard writes). By index (referring to the pending listing) or in bulk
+with `--all`, optionally filtered by `--project`/`--task`.
+
+```bash
+$ squire alerts ack 1 2
+✓ 2 alerta(s) reconhecido(s).
+
+$ squire alerts ack --all --project semanario-infantil
+✓ 4 alerta(s) reconhecido(s).
+```
+
+> [!NOTE]
+> The dashboard is a second writer of `alerts.json` (POST `/api/alerts/ack`).
+> Indexes can race if an alert is dismissed by the dashboard between `list`
+> and `ack` — with the dashboard running, prefer the `--project`/`--task`
+> selectors.
+
+### `squire alerts rm <n> [<n>…] | --acked | --all`
+
+Removes alerts from the file (equivalent to the dashboard's "dismiss").
+`--acked` removes only acknowledged ones; `--all` clears everything.
+
+```bash
+$ squire alerts rm --acked
+✓ 13 alerta(s) removido(s).
+```
 
 ## Tasks
 
@@ -208,7 +321,7 @@ shape, see [Tasks](tasks.md).
 Lists tasks with visual status. Shortcut: `squire tasks <project>` (no subcommand).
 
 ```bash
-$ squire tasks orchestrator-dashboard
+$ squire tasks squire-dashboard
   ✓ [task-001] Setup Next.js scaffolding
   ✓ [task-002] Add fixture data loaders
   ⟳ [task-003] Implement ProjectCard component
@@ -231,30 +344,42 @@ Adds a task interactively or via flags.
 | `--skip-homolog`        | Auto-approve after inner loop (no Claude call)             |
 | `--max N`               | `max_attempts` (default: 10)                                |
 | `--max-homolog N`       | `max_homologation_attempts` (default: 5)                    |
+| `--no-ask`              | Skip the advanced-fields prompt (effort/tdd/test_author)    |
+| `--spec` / `--no-spec`  | Update/skip SPEC.md without asking                          |
 
 ### `squire tasks edit <project> [task-id]`
 
 Opens the task in `$EDITOR` (editable YAML format). Without `task-id`,
 opens the entire `tasks.json`.
 
-### `squire tasks rm <project> <task-id>`
+### `squire tasks rm <project> <task-id> [--yes]`
 
-Removes the task. No double-confirm — this only touches state JSON,
-easy to recover from backup or git.
+Removes the task after a simple confirmation. `--yes` skips it (scripts
+and the host agent use this).
 
-### `squire tasks split <project> <task-id>`
+### `squire tasks split <project> <task-id> [--yes]`
 
 Asks Claude to subdivide the task into subtasks. Shows the proposal and
-allows one refinement before applying.
+allows one refinement before applying. `--yes` accepts the first
+proposal without confirmation.
 
-### `squire tasks plan <project> [--desc "..."]`
+### `squire tasks plan <project> [--desc "..."] [--mode append|replace] [--no-refine] [--yes] [--spec|--no-spec]`
 
 Asks Claude to generate an initial task list from a free-form description.
 Up to 3 interactive refinement cycles. At the end, asks whether to
-replace or append to the current `tasks.json`.
+replace or append to the current `tasks.json` — **Enter means append**
+(the non-destructive choice).
+
+Non-interactive mode (used by the host agent / dashboard):
+
+- `--yes` — zero prompts: no refinement, `append` mode by default,
+  SPEC.md skipped unless `--spec` is passed. Refuses to run while a
+  squire session is active (won't race it for `tasks.json`).
+- `--mode append|replace` — decide append/replace without asking.
+- `--no-refine` — first draft only, no feedback loop.
 
 ```bash
-$ squire tasks plan orchestrator-dashboard --desc "Next.js page reading JSON state"
+$ squire tasks plan squire-dashboard --desc "Next.js page reading JSON state"
 [planning] Claude gerando rascunho...
 [planning] 11 tasks propostas. Refinar? [y/N] n
 [planning] Modo: (s)ubstituir / (a)nexar / (c)ancelar? s
@@ -274,6 +399,8 @@ Creates a new project with template `project.json` + `tasks.json` in
 | `--name <name>`       | `<project>` (same as the ID)                  |
 | `--stack <csv>`       | `typescript`                                  |
 | `--backend <name>`    | `opencode` (also accepts `litellm`, `crush`)  |
+| `--yes`               | Skip the "plan tasks with Claude?" prompt     |
+| `--git-init`          | Create the repo with `git init` + empty commit|
 
 ```bash
 $ squire new my-api --repo /home/ai-debian/projects/my-api \
@@ -306,7 +433,7 @@ Para confirmar, digite exatamente: my-api echo
 > **Insight:** using a NATO alphabet word (alpha, bravo, charlie, ...
 > zulu) prevents accidental `rm` from clipboard or shell history — you
 > have to read the prompt to know which word to type. See
-> [`squire.py:1087`](../../squire.py).
+> [`squire.py:1275`](../../squire.py).
 
 ## Budget
 
@@ -344,6 +471,50 @@ over the file.
 
 Zeros the daily counters (`global-stats.json`). Useful when you want to
 restart counting without waiting for UTC rollover.
+
+## Agent
+
+### `squire agent [--once] [--poll N]`
+
+Executes commands enqueued by the dashboard (delegated to `agent_cli.py`).
+The dashboard runs in a container with no access to project repos or host
+binaries — any operation that needs them (create project, run/resume/kill,
+plan tasks with Claude) becomes a file in
+`$SQUIRE_STATE_ROOT/commands/pending/<uuid>.json`, which the agent claims
+(atomic rename into `running/`) and answers in `done/<uuid>.json`.
+
+- Strict whitelist: `new_project`, `run`, `resume`, `kill`, `plan_tasks`,
+  `split_task`, `fix_task` — with `project_id`/args validation and
+  list-argv (never shell).
+- `--once` drains the queue and exits (tests/cron); otherwise a
+  continuous loop with a 2s poll.
+- Single instance via pidfile (`commands/agent.pid`).
+- Orphaned commands (agent restarted mid-run) become `failed` — never
+  re-executed.
+- Results in `done/` expire after `SQUIRE_COMMAND_TTL_H` (default 24h).
+
+To run as a service (survives logout/reboot):
+
+```ini
+# ~/.config/systemd/user/squire-agent.service
+[Unit]
+Description=Squire command agent
+
+[Service]
+ExecStart=/home/ai-debian/squire/squire agent
+Environment=SQUIRE_COMMAND_TIMEOUT=1200
+Environment=PATH=/home/ai-debian/.local/bin:/home/ai-debian/.opencode/bin:/usr/local/bin:/usr/bin:/bin
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+$ loginctl enable-linger ai-debian          # systemd --user without an active session
+$ systemctl --user daemon-reload
+$ systemctl --user enable --now squire-agent
+```
 
 ## Help
 

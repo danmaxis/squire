@@ -613,3 +613,41 @@ class TestCrushBackend:
         """create_backend('crush') deve retornar instância de CrushBackend."""
         b = create_backend("crush")
         assert isinstance(b, CrushBackend)
+
+
+# ── Mensagens de erro HTTP amigáveis ─────────────────────────────────
+
+class TestFriendlyHTTPErrors:
+    def _backend(self):
+        from backends import LiteLLMBackend
+        return LiteLLMBackend(model="meu-modelo", base_url="http://host:1234/v1", api_key="k")
+
+    def _status_error(self, code: int):
+        import httpx
+        req = httpx.Request("POST", "http://host:1234/v1/chat/completions")
+        resp = httpx.Response(code, request=req, text="detail")
+        return httpx.HTTPStatusError("err", request=req, response=resp)
+
+    def test_401_menciona_chave(self):
+        import httpx
+        b = self._backend()
+        with patch.object(httpx.Client, "post", side_effect=self._status_error(401)):
+            with pytest.raises(RuntimeError, match="SQUIRE_LITELLM_KEY"):
+                b._call_api_with_retry("x", timeout=5)
+
+    def test_404_menciona_modelo_e_endpoint(self):
+        import httpx
+        b = self._backend()
+        with patch.object(httpx.Client, "post", side_effect=self._status_error(404)):
+            with pytest.raises(RuntimeError, match="meu-modelo.*host:1234"):
+                b._call_api_with_retry("x", timeout=5)
+
+    def test_connect_error_menciona_endpoint(self):
+        import httpx
+        b = self._backend()
+        with (
+            patch.object(httpx.Client, "post", side_effect=httpx.ConnectError("refused")),
+            patch("backends.time.sleep"),
+        ):
+            with pytest.raises(RuntimeError, match="inacessível.*host:1234"):
+                b._call_api_with_retry("x", timeout=5)

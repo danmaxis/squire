@@ -1,0 +1,42 @@
+# Standalone (apenas dashboard) — útil para dev isolado.
+# Deploy canônico é a stack em ../deploy/docker-compose.yml (workspace +
+# dashboard juntos, volume nomeado squire-state). Este arquivo bind-monta o
+# path legado /home/ai-debian/squire-state e é superseded pela stack.
+version: '3.8'
+
+services:
+  squire-dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: squire-dashboard
+    restart: unless-stopped
+    # uid 1000 (ai-debian): os arquivos de estado são 0600 ai-debian e o
+    # dashboard precisa de escrita (ack/dismiss de alertas via POST API)
+    user: "1000:1000"
+    ports:
+      # 3100 está ocupada na VM (browserless)
+      - "3101:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
+      # Aponta para o volume montado com os JSONs do squire
+      - SQUIRE_DATA_PATH=/data
+      # Intervalo de polling em ms (default: 30000)
+      - NEXT_PUBLIC_REFRESH_INTERVAL=30000
+      # Token de escrita (gerado no .env ao lado deste arquivo — gitignored).
+      # Sem ele, todas as rotas de escrita respondem 503.
+      - DASHBOARD_WRITE_TOKEN=${DASHBOARD_WRITE_TOKEN}
+    volumes:
+      # Estado do squire em rw: o dashboard é segundo escritor (POST
+      # /api/alerts/ack escreve acknowledged/dismiss em alerts.json)
+      - /home/ai-debian/squire-state:/data
+    healthcheck:
+      # 127.0.0.1 (não localhost): o busybox wget resolve localhost para ::1
+      # e o node escuta só em IPv4 → connection refused
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s

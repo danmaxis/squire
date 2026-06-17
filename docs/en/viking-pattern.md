@@ -27,7 +27,7 @@ Squire (inner loop and homologator) injects that block into the prompt
 before each relevant call:
 
 ```python
-# inner_loop.py:243
+# inner_loop.py:245
 try:
     import viking as _viking
     viking_ctx = _viking.load_viking_context(self.project_path)

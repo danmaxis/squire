@@ -5,7 +5,7 @@
 Squire delegates code execution to a **backend** — an adapter that takes
 a text instruction and returns the modified files. Three backends are
 supported today: **LiteLLM**, **OpenCode**, **Crush**. The common
-interface is `CodingBackend` in [`backends.py:108`](../../backends.py).
+interface is `CodingBackend` in [`backends.py:134`](../../backends.py).
 
 ## Table of contents
 
@@ -33,8 +33,10 @@ interface is `CodingBackend` in [`backends.py:108`](../../backends.py).
 
 ## LiteLLM
 
-Backend that calls an LLM via OpenAI-compatible HTTP. In Squire's default
-setup, it's the LiteLLM gateway on Zordon exposing the local Qwen 35B.
+Backend that calls an LLM via OpenAI-compatible HTTP. It works with any
+compatible endpoint: LiteLLM gateway, **Ollama** (`/v1`), or llama.cpp
+server. In Squire's current setup, it's Ollama on Zordon
+(`http://192.168.50.24:11434/v1`) serving `journal-synth:latest` (Qwen 35B).
 
 ### How it works
 
@@ -58,7 +60,7 @@ setup, it's the LiteLLM gateway on Zordon exposing the local Qwen 35B.
 
 ### Accepted fence formats
 
-`_extract_filepath` ([`backends.py:278`](../../backends.py)) recognizes
+`_extract_filepath` ([`backends.py:359`](../../backends.py)) recognizes
 four formats:
 
 ```text
@@ -69,9 +71,26 @@ src/foo.ts                    # path on line BEFORE fence
 ```Dockerfile                 # known files without extension
 ```
 
+### Path validation
+
+Every path candidate goes through `_is_plausible_relpath` before becoming
+a file: relative, no spaces/shell metachars (`#`, `"`, `=`…), no
+`..`/absolute paths, with an extension or a known name (Dockerfile etc.).
+Loose lines Qwen spills outside the fences (`pytest==8.0.0`, `# src`,
+`rm -rf "`) are skipped with a log warning instead of becoming junk files
+in the repo. `_write_file` re-validates and confines writes to the
+project directory (defense in depth against traversal).
+
+### Actionable HTTP errors
+
+4xx failures don't retry and arrive with a message pointing at the fix:
+401/403 → "check `SQUIRE_LITELLM_KEY`"; 404 → "model X not found at
+<endpoint> — check `SQUIRE_LITELLM_MODEL`"; connection refused → "LLM
+endpoint unreachable at <url> — is the service running?".
+
 ### System prompt
 
-Hardcoded in [`backends.py:30`](../../backends.py):
+Hardcoded in [`backends.py:32`](../../backends.py):
 
 ```text
 Você é um desenvolvedor experiente num loop de CI automatizado.
@@ -118,7 +137,7 @@ filesystem directly. Squire detects changes via `git diff --name-only`.
 
 ### Agent routing
 
-`_select_agent` ([`backends.py:338`](../../backends.py)) picks between:
+`_select_agent` ([`backends.py:427`](../../backends.py)) picks between:
 
 | Agent      | Trigger                                                                                                     |
 | ---------- | ----------------------------------------------------------------------------------------------------------- |
@@ -207,7 +226,7 @@ class _LLMLock:
     # ...
 ```
 
-[`backends.py:75`](../../backends.py). It's an exclusive `flock` on
+[`backends.py:100`](../../backends.py). It's an exclusive `flock` on
 `$SQUIRE_STATE_ROOT/llm.lock`. Guarantees that **only one backend calls
 an LLM at a time** — prevents CPU/GPU saturation when multiple tools
 run together (e.g., orchestrator + a standalone aider + interactive

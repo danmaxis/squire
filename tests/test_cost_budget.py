@@ -328,3 +328,104 @@ class TestWaitSeconds:
         secs = rl.wait_seconds()
         assert secs > 0
         assert secs <= 86400
+
+
+# ── Acúmulo em GlobalStats (regressão: cost_estimate_usd parado em 0) ──
+
+def _bare_squire():
+    """Squire sem __init__ — só o necessário para os helpers de stats."""
+    from squire import Squire
+    s = Squire.__new__(Squire)
+    from models import GlobalStats
+    s.stats = GlobalStats(date="2026-06-11")
+    s.session_cost_usd = 0.0
+    return s
+
+
+class TestAccountCallAccumulation:
+    def test_envelope_claude_flui_para_global_stats(self):
+        """JSON do claude --print → _extract_usage → _account_call → GlobalStats."""
+        from homologator import _extract_usage_from_claude_json
+        data = {
+            "total_cost_usd": 0.042,
+            "model": "claude-opus-4-7",
+            "usage": {"input_tokens": 2000, "output_tokens": 500},
+        }
+        usage = _extract_usage_from_claude_json(data)
+        assert usage is not None
+
+        s = _bare_squire()
+        cost = s._account_call(usage, cc_call=True)
+        assert cost == pytest.approx(0.042)
+        assert s.stats.cost_estimate_usd == pytest.approx(0.042)
+        assert s.stats.daily_tokens == 2500
+        assert s.stats.cost_by_model.get(usage.model) == pytest.approx(0.042)
+
+    def test_tokens_unknown_conta_em_calls_unknown(self):
+        s = _bare_squire()
+        u = TokenUsage(tokens_unknown=True, model="opencode-cli")
+        s._account_call(u, cc_call=True)
+        assert s.stats.daily_calls_unknown_cost == 1
+        assert s.stats.cost_estimate_usd == 0.0
+
+
+# ── approval_first_try_rate ────────────────────────────────────────────
+
+class TestApprovalFirstTryRate:
+    def _task(self, attempt: int, skip: bool = False):
+        t = MagicMock()
+        t.homologation_attempt = attempt
+        t.skip_homologation = skip
+        return t
+
+    def test_aprovada_na_primeira_conta(self):
+        s = _bare_squire()
+        s._record_completion_stats(self._task(attempt=1))
+        assert s.stats.tasks_completed_today == 1
+        assert s.stats.tasks_homologated_today == 1
+        assert s.stats.tasks_approved_first_try_today == 1
+        assert s.stats.approval_first_try_rate == 100.0
+
+    def test_aprovada_na_terceira_nao_conta_como_first_try(self):
+        s = _bare_squire()
+        s._record_completion_stats(self._task(attempt=3))
+        assert s.stats.tasks_homologated_today == 1
+        assert s.stats.tasks_approved_first_try_today == 0
+        assert s.stats.approval_first_try_rate == 0.0
+
+    def test_taxa_mista(self):
+        s = _bare_squire()
+        s._record_completion_stats(self._task(attempt=1))
+        s._record_completion_stats(self._task(attempt=2))
+        s._record_completion_stats(self._task(attempt=1))
+        s._record_completion_stats(self._task(attempt=4))
+        assert s.stats.approval_first_try_rate == 50.0
+
+    def test_skip_homologation_fica_de_fora_da_taxa(self):
+        s = _bare_squire()
+        s._record_completion_stats(self._task(attempt=0, skip=True))
+        assert s.stats.tasks_completed_today == 1
+        assert s.stats.tasks_homologated_today == 0
+        assert s.stats.approval_first_try_rate == 0.0
+
+
+class TestModelUsageFallback:
+    def test_model_vem_de_modelUsage_quando_topo_ausente(self):
+        from homologator import _extract_usage_from_claude_json
+        data = {
+            "total_cost_usd": 0.03,
+            "usage": {"input_tokens": 100, "output_tokens": 50},
+            "modelUsage": {"claude-opus-4-7": {"inputTokens": 100}},
+        }
+        u = _extract_usage_from_claude_json(data)
+        assert u.model == "claude-opus-4-7"
+
+    def test_model_topo_tem_precedencia(self):
+        from homologator import _extract_usage_from_claude_json
+        data = {
+            "total_cost_usd": 0.03,
+            "model": "claude-x",
+            "usage": {"input_tokens": 1, "output_tokens": 1},
+            "modelUsage": {"claude-y": {}},
+        }
+        assert _extract_usage_from_claude_json(data).model == "claude-x"

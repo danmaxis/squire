@@ -1,0 +1,20 @@
+#!/command/with-contenv bash
+# Poller da fila de comandos (substitui o systemd --user squire-agent.service).
+#
+# Subprocessos (claude/opencode/git) herdam ESTE ambiente — por isso o
+# PATH precisa incluir o opencode (~/.opencode/bin), igual ao que o unit
+# systemd fazia com Environment=PATH. claude vem do npm global (/usr/bin).
+#
+# As demais SQUIRE_*/LITELLM_* chegam pelo `environment:` do compose via
+# with-contenv; aqui só garantimos PATH/HOME e defaults de timeout.
+export HOME=/home/ai-debian
+export PATH=/home/ai-debian/.opencode/bin:/home/ai-debian/.local/bin:/usr/local/bin:/usr/bin:/bin
+export SQUIRE_STATE_ROOT="${SQUIRE_STATE_ROOT:-/data}"
+export SQUIRE_AGENT_REPO_ROOT="${SQUIRE_AGENT_REPO_ROOT:-/home/ai-debian/projects}"
+export SQUIRE_COMMAND_TIMEOUT="${SQUIRE_COMMAND_TIMEOUT:-1800}"
+export SQUIRE_IMPLEMENT_TIMEOUT="${SQUIRE_IMPLEMENT_TIMEOUT:-900}"
+
+# Roda como uid 1000 para manter o contrato 0600/uid-1000 do estado.
+# s6-setuidgid por caminho absoluto: o PATH acima (proposital, p/ os filhos
+# claude/opencode) não inclui /command, onde ficam as ferramentas do s6.
+exec /command/s6-setuidgid ai-debian /home/ai-debian/squire/squire agent

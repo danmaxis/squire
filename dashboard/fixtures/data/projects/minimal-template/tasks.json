@@ -1,0 +1,14 @@
+{
+  "tasks": [
+    {
+      "id": "task-001",
+      "title": "Setup inicial",
+      "description": "template antigo do wrapper",
+      "status": "pending",
+      "max_attempts": 10,
+      "max_homologation_attempts": 5,
+      "skip_homologation": false,
+      "subtasks": []
+    }
+  ]
+}

@@ -73,6 +73,12 @@ locais para 1 do Claude Code**.
 | `viking.py`            | Carga de `<repo>/docs/viking/*.md` (restrições por domínio)              |
 | `progress.py`          | Geração/leitura de `progress.txt` (memória de longo prazo)              |
 | `tasks_cli.py`         | Subcomandos `squire tasks` (list/add/edit/rm/split/plan)                |
+| `alerts_cli.py`        | Subcomandos `squire alerts` (list/ack/rm)                               |
+| `doctor.py`            | `squire doctor` — health check do ambiente (+ `--fix` de locks mortos)  |
+| `agent_cli.py`         | `squire agent` — executa a fila de comandos do dashboard (`commands/`)  |
+| `fix_cli.py`           | `squire fix` — Claude corrige task bloqueada (ciclo completo)           |
+| `accounting.py`        | Contabilidade de custo/uso compartilhada (orquestrador + fix)            |
+| `gitops.py`            | Commits guarded compartilhados (snapshot, task, fix)                     |
 | `squire` (bash)        | Front-end CLI: dispatcha subcomandos, gerencia bg/lock/log              |
 
 > **Insight:** o boundary entre `squire.py` e `inner_loop.py` é importante.
@@ -80,6 +86,27 @@ locais para 1 do Claude Code**.
 > "rodar uma iteração e devolver resultado". Toda decisão de continuar/escalar/
 > commitar é do `Squire`. Isso permite trocar o backend (`litellm` → `opencode`)
 > ou adicionar uma fase RED sem mudar o orquestrador.
+
+### Squire Dashboard como segundo escritor
+
+O dashboard (Next.js, ler `docs/configuracao.md`) vive **dentro do repo** em
+`dashboard/` e roda como container separado na stack (`deploy/docker-compose.yml`).
+É normalmente um leitor — faz polling dos JSONs em `SQUIRE_DATA_PATH`. A partir
+do P3 ele também escreve, mas só fora do path crítico do `Squire`:
+
+- `POST /api/alerts/ack` — marca alerta como `acknowledged` ou remove
+  do `alerts.json`.
+- `POST /api/projects/<id>/budget` — patch em `Checkpoint.rate_limit.max_daily_usd`
+  ou `max_calls_per_window`.
+- `POST /api/projects/<id>/tasks/<task-id>/action` — `retry` zera
+  tentativas/rejeições, `approve` força aprovação, `skip` liga
+  `skip_homologation`.
+
+Todas as mutações passam por `writeJsonAtomic` (`.tmp` → `rename`), o mesmo
+padrão de `checkpoint.atomic_write_json`. Antes de mutar, a rota lê
+`session.lock` — se um squire estiver rodando o projeto-alvo, responde
+409 e o operador espera a sessão liberar. Squire continua sendo o único
+escritor enquanto está executando; o dashboard só edita entre sessões.
 
 ## Ciclo de uma task
 
@@ -102,7 +129,7 @@ crashar no meio, `squire resume` reposiciona o cursor exatamente onde parou.
 Os status do enum `TaskStatus` ([`models.py:25`](../models.py)) são: `pending`,
 `implementing`, `testing`, `homologating`, `completed`, `blocked`.
 
-Em paralelo ao status da task, o `Cursor` ([`models.py:171`](../models.py))
+Em paralelo ao status da task, o `Cursor` ([`models.py:206`](../models.py))
 rastreia o `CursorStep` corrente dentro de uma rodada: `planning`, `red_phase`
 (TDD: escrita de testes antes da implementação), `llm_execution`, `testing`,
 `homologation`, `completed`.
@@ -110,7 +137,7 @@ rastreia o `CursorStep` corrente dentro de uma rodada: `planning`, `red_phase`
 ### O que acontece dentro de uma rodada
 
 1. **Snapshot de testes** (TDD) — antes da implementação, `InnerLoop.snapshot_test_hashes`
-   ([`inner_loop.py:71`](../inner_loop.py)) calcula SHA256 de cada `test_*.py`.
+   ([`inner_loop.py:72`](../inner_loop.py)) calcula SHA256 de cada `test_*.py`.
    Após a execução, `check_test_integrity` compara; se um teste foi modificado,
    o squire reverte via `git checkout` e devolve erro para o LLM.
 2. **Fase RED** (se `task.tdd=True`) — escreve testes falhos. Pode ser feita pelo
@@ -119,12 +146,12 @@ rastreia o `CursorStep` corrente dentro de uma rodada: `planning`, `red_phase`
    monta instrução, chama backend, roda testes. A cada 5 falhas, pede
    ajuda técnica ao Claude Code (`TechnicalEscalation.unblock`).
 4. **Gate mecânico** — antes de gastar uma call ao Claude Code,
-   `_pre_homologation_checks` ([`squire.py:504`](../squire.py)) roda
+   `_pre_homologation_checks` ([`squire.py:648`](../squire.py)) roda
    typecheckers/compiladores por linguagem (tsc, cargo check, mvn compile,
    go build, etc.) e detecta padrões anti-vibe-coding (`any`, `# type: ignore`,
    `unsafe`, `catch unreachable`). Falha → volta para o inner loop sem
    consumir budget.
-5. **Homologação** — `Homologator.review` ([`homologator.py:63`](../homologator.py))
+5. **Homologação** — `Homologator.review` ([`homologator.py:59`](../homologator.py))
    envia código + contexto para o Claude Code, recebe `HomologationResult`.
    Aprovado: commit + próxima task. Rejeitado: feedback realimenta o inner loop.
 6. **Escalações automáticas** — loop detectado (mesmo erro em N rejeições
@@ -184,7 +211,7 @@ em [Estado e recuperação](estado-e-recuperacao.md).
 > rescrevê-los. O squire calcula hash dos testes antes da implementação,
 > verifica depois, e reverte via git se foram modificados. A regra também
 > aparece literalmente em toda instrução enviada ao backend (ver
-> `inner_loop.py:252`). Defense in depth: prompt + check + revert.
+> `inner_loop.py:254`). Defense in depth: prompt + check + revert.
 
 > **Remark:** parallelismo entre tasks não é suportado (uma task por vez por
 > projeto, um projeto por vez por session lock). A escolha foi deliberada:

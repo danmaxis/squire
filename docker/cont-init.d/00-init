@@ -1,0 +1,39 @@
+#!/command/with-contenv bash
+# Oneshot de init (roda como root, antes dos serviços).
+# - Gera host keys do sshd se faltarem.
+# - Ajusta dono dos volumes nomeados (começam root) para uid 1000.
+# - Normaliza perms do authorized_keys (montado pelo compose).
+set -e
+
+# Host keys do sshd (idempotente — só cria o que falta).
+ssh-keygen -A
+mkdir -p /run/sshd
+
+# Volumes nomeados sobem root-owned; o agente/orquestrador rodam como
+# uid 1000 e os arquivos de estado precisam ficar 0600 uid 1000 para o
+# dashboard (segundo escritor) conseguir ler/escrever.
+chown ai-debian:ai-debian /data /home/ai-debian/projects 2>/dev/null || true
+
+# authorized_keys montado read-only pode vir com dono root; o sshd exige
+# que o arquivo seja do dono da conta (ou root) e não-gravável por grupo.
+if [[ -f /home/ai-debian/.ssh/authorized_keys ]]; then
+    chmod 600 /home/ai-debian/.ssh/authorized_keys 2>/dev/null || true
+fi
+
+# Materializa o ambiente de runtime (vindo do `environment:` do compose,
+# disponível aqui via with-contenv) em /etc/squire.env. Shells SSH NÃO
+# herdam o env do PID 1; o profile.d abaixo fonte este arquivo para que
+# `squire run` interativo tenha LITELLM_URL/KEY etc. Não é embutido na
+# imagem — só existe no container em execução.
+{
+    for var in $(compgen -e); do
+        case "$var" in
+            SQUIRE_*|OPENAI_API_KEY|ANTHROPIC_API_KEY)
+                printf 'export %s=%q\n' "$var" "${!var}" ;;
+        esac
+    done
+} > /etc/squire.env
+# Pode conter credenciais (ANTHROPIC_API_KEY/OPENAI_API_KEY). Restringe a
+# leitura ao ai-debian (único usuário SSH e quem fonta no profile.d).
+chown ai-debian:ai-debian /etc/squire.env
+chmod 600 /etc/squire.env

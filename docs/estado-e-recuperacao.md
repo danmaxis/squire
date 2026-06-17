@@ -26,12 +26,18 @@ $SQUIRE_STATE_ROOT/
 ├── global-stats.json             ← contadores agregados do dia
 ├── alerts.json                   ← alertas que requerem atenção
 ├── rate.json                     ← legado, não usado atualmente
+├── commands/                     ← fila do dashboard → squire agent
+│   ├── pending/<uuid>.json       ← enfileirado pelo dashboard
+│   ├── running/<uuid>.json       ← reivindicado pelo agente (rename atômico)
+│   └── done/<uuid>.json          ← resultado (expira após SQUIRE_COMMAND_TTL_H)
 └── projects/
     └── <project-id>/
         ├── project.json          ← metadata do projeto
         ├── tasks.json            ← backlog
         ├── checkpoint.json       ← cursor + recovery hints + rate state
         ├── history.json          ← lista append-only de eventos
+        ├── commits.json          ← log de commits (sempre presente)
+        ├── homologation_log.json ← vereditos completos (cap 50/task)
         └── progress.txt          ← memória de longo prazo (texto livre)
 ```
 
@@ -43,10 +49,10 @@ Pydantic: [`models.Project`](../models.py).
 
 ```json
 {
-  "id": "orchestrator-dashboard",
-  "name": "Orchestrator Dashboard",
+  "id": "squire-dashboard",
+  "name": "Squire Dashboard",
   "description": "Painel Next.js mostrando estado dos projetos",
-  "repo_path": "/home/ai-debian/projects/orchestrator-dashboard",
+  "repo_path": "/home/ai-debian/projects/squire-dashboard",
   "stack": ["typescript", "nextjs"],
   "status": "implementing",
   "created_at": "2026-03-24T18:32:00Z",
@@ -114,7 +120,7 @@ Pydantic: [`models.Checkpoint`](../models.py).
 
 ### `history.json` — eventos da sessão
 
-Append-only. Cada evento é um `HistoryEvent` ([`models.py:139`](../models.py)):
+Append-only. Cada evento é um `HistoryEvent` ([`models.py:143`](../models.py)):
 
 ```json
 {
@@ -130,6 +136,38 @@ Append-only. Cada evento é um `HistoryEvent` ([`models.py:139`](../models.py)):
 
 Tipos em [`models.EventType`](../models.py). Útil para auditoria, geração
 de `progress.txt`, e (futuramente) live dashboard via JSONL.
+
+### `commits.json` — log de commits do projeto
+
+Pydantic: [`models.CommitLog`](../models.py). Recompilado a partir do
+`git log` do repo do projeto pelo [`Squire._refresh_commits_json`](../squire.py)
+no início de cada sessão e após cada task concluída. O dashboard lê este
+arquivo em vez de executar `git log` em runtime.
+
+```json
+{
+  "commits": [
+    {
+      "sha": "ab4432c…",
+      "message": "docs: note dashboard as second writer",
+      "timestamp": "2026-05-11T14:24:33Z",
+      "diff_summary": "1 arquivo(s) alterado(s)",
+      "files_changed": ["docs/arquitetura.md"]
+    }
+  ],
+  "error": null
+}
+```
+
+**Sempre escrito**, mesmo em falha — o dashboard depende disso para
+distinguir "projeto sem commits ainda" de "arquivo sumiu":
+
+- Sucesso (inclusive 0 commits): `{"commits": [...], "error": null}`
+- `git log` falha (repo sem `.git`, comando travado, etc):
+  `{"commits": [], "error": "git log falhou: <stderr>"}`
+
+Consumidores devem tratar `error != null` como erro de provisionamento,
+não como lista vazia.
 
 ### `progress.txt` — memória de longo prazo
 
@@ -191,15 +229,22 @@ Apenas uma sessão squire por instalação por vez. O lock é um JSON em
 ```json
 {
   "holder": "sess-20260511-1422-a3f4c1",
+  "project_id": "squire-dashboard",
   "acquired_at": "2026-05-11T14:22:01Z",
   "ttl_minutes": 60,
   "pid": 28471
 }
 ```
 
+> `project_id` é o identificador estruturado do projeto que detém o lock.
+> Consumidores externos (dashboard, ferramentas de inspeção) devem fazer
+> match exato contra este campo — **nunca** parsear `holder` por substring,
+> que casa prefixos diferentes (ex: lock em `proj-happy` colidindo com
+> `proj`). Pode vir `null` em locks antigos, gravados antes desta mudança.
+
 ### Aquisição
 
-`acquire_lock(session_id)` ([`checkpoint.py:119`](../checkpoint.py)):
+`acquire_lock(session_id, project_id=None)` ([`checkpoint.py:119`](../checkpoint.py)):
 
 1. Se não existe → cria e retorna `True`
 2. Se existe e `holder == session_id` → renova e retorna `True` (reentrante)
@@ -226,6 +271,39 @@ squire kill       # SIGTERM no processo + remove lock
 squire unlock     # só remove o lock (não mata processo)
 ```
 
+## Deployment em container (stack workspace + dashboard)
+
+O squire pode rodar como uma stack docker-compose de **dois containers**
+(`deploy/docker-compose.yml`), isolando o código gerado pelo LLM do host:
+
+- **`workspace`** — orquestrador + agente da fila + sshd + toolchains +
+  repos dos projetos. Supervisionado por **s6-overlay** (PID 1), que faz
+  reaping de zumbis e substitui o unit `systemd --user squire-agent`.
+  Exposto por SSH em `:2222`, com `mem_limit`/`memswap_limit` rígidos
+  (proíbe usar swap do host).
+- **`dashboard`** — imagem Next.js existente, inalterada, em `:3101`.
+
+Ambos montam o **mesmo volume nomeado `squire-state` em `/data`** — é
+obrigatório que seja um único filesystem, pois as escritas usam
+`os.replace` (atômico só dentro do mesmo fs; ver [Escrita atômica](#escrita-atômica)).
+
+### Lock residual sobrevive a restart do container
+
+O `session.lock` guarda um PID; ao recriar/reiniciar o container, o PID
+antigo deixa de existir. Isso é **tratado automaticamente**: o TTL (60min)
+expira o lock e `squire doctor --fix` / o `check_lock` do wrapper removem o
+lock quando o pid registrado está morto (`kill -0` falha). O `llm.lock`
+(flock) é liberado pelo kernel na morte do processo — nunca fica residual.
+
+### Docker-in-Docker é proibido por padrão
+
+O Docker **não** está instalado no `workspace` e o socket do host/Unraid
+**nunca** é montado (montá-lo daria controle do Docker do host ao container,
+anulando a contenção). Tasks que precisam buildar/rodar uma imagem são
+escaladas ao humano via alerta `requires_container_build` (ver
+[homologacao.md](homologacao.md)). A única evolução futura aceitável é DinD
+**rootless** dentro do `workspace`, se um projeto bloquear nisso.
+
 ## Auto-snapshot e auto-commit
 
 Para que o working tree do projeto seja sempre recuperável, o squire faz
@@ -233,7 +311,7 @@ dois commits automáticos:
 
 ### 1. Antes de cada task (auto-snapshot)
 
-`_auto_snapshot_commit` ([`squire.py:113`](../squire.py)) roda:
+`_auto_snapshot_commit` ([`squire.py:213`](../squire.py)) roda:
 
 ```bash
 git add -A
@@ -247,7 +325,7 @@ trabalho real seria perdido.
 
 ### 2. Após homologação aprovada (auto-commit da task)
 
-`_commit_task_completion` ([`squire.py:162`](../squire.py)):
+`_commit_task_completion` ([`squire.py:260`](../squire.py)):
 
 ```bash
 git add -A
@@ -282,6 +360,14 @@ Não toca em nada além do `session.lock`.
 $ squire unlock
 ✓ Lock removido.
 ```
+
+### `squire doctor --fix` — limpeza segura de locks
+
+Alternativa ao `unlock` que só age quando é comprovadamente seguro:
+remove o `session.lock` apenas se o pid registrado está morto, e o
+arquivo `llm.lock` apenas se o flock está livre (o arquivo residual em
+si é inofensivo — o lock real é o flock, não a existência do arquivo).
+Locks de processos vivos nunca são removidos.
 
 ### `squire kill` — matar processo + lock
 
@@ -348,7 +434,7 @@ Para confirmar, digite exatamente: my-app foxtrot
 > **Insight — palavra NATO como confirmação.**
 > Alpha, bravo, charlie... zulu. Uma palavra aleatória do alfabeto fonético
 > é o suficiente para impedir `rm` acidental por copy-paste do histórico ou
-> autocompletar do shell. Veja [`squire.py:1087`](../squire.py).
+> autocompletar do shell. Veja [`squire.py:1275`](../squire.py).
 
 ## Cenários comuns
 

@@ -17,8 +17,9 @@ from typing import Optional, TypeVar
 from pydantic import BaseModel
 
 from models import (
-    Alert, AlertList, AlertSeverity, Checkpoint, GlobalStats,
-    History, HistoryEvent, Project, SessionLock, TaskList,
+    Alert, AlertList, AlertSeverity, Checkpoint, CommitLog, GlobalStats,
+    History, HistoryEvent, HomologationLog, HomologationLogEntry, Project,
+    SessionLock, TaskList,
 )
 import config
 
@@ -114,10 +115,51 @@ def append_event(project_id: str, event: HistoryEvent) -> None:
     save_history(project_id, history)
 
 
+# ── Homologation log ───────────────────────────────────────────────
+
+# Vereditos completos por task são limitados para o arquivo não crescer
+# sem fim; 50 rodadas por task é muito acima de qualquer uso real.
+HOMOLOG_LOG_CAP_PER_TASK = 50
+
+
+def load_homologation_log(project_id: str) -> HomologationLog:
+    result = load_model(
+        config.project_dir(project_id) / "homologation_log.json", HomologationLog
+    )
+    return result or HomologationLog()
+
+
+def save_homologation_log(project_id: str, log: HomologationLog) -> None:
+    save_model(config.project_dir(project_id) / "homologation_log.json", log)
+
+
+def append_homologation_entry(project_id: str, entry: HomologationLogEntry) -> None:
+    """Adiciona um veredito ao log, mantendo as últimas N entradas por task."""
+    log = load_homologation_log(project_id)
+    log.entries.append(entry)
+    same_task = [e for e in log.entries if e.task_id == entry.task_id]
+    if len(same_task) > HOMOLOG_LOG_CAP_PER_TASK:
+        excess = len(same_task) - HOMOLOG_LOG_CAP_PER_TASK
+        kept, dropped = [], 0
+        for e in log.entries:
+            if e.task_id == entry.task_id and dropped < excess:
+                dropped += 1
+                continue
+            kept.append(e)
+        log.entries = kept
+    save_homologation_log(project_id, log)
+
+
 # ── Session Lock ───────────────────────────────────────────────────
 
-def acquire_lock(session_id: str) -> bool:
-    """Tenta adquirir o lock. Retorna True se conseguiu."""
+def acquire_lock(session_id: str, project_id: Optional[str] = None) -> bool:
+    """Tenta adquirir o lock. Retorna True se conseguiu.
+
+    `project_id` é gravado de forma estruturada no lock para que consumidores
+    (ex: dashboard) consigam fazer match exato de projeto sem precisar parsear
+    o `holder` por substring — substring casa prefixos diferentes (`proj` vs
+    `proj-happy`) e gera 409 falso-positivo.
+    """
     existing = load_model(config.SESSION_LOCK_FILE, SessionLock)
 
     if existing is not None:
@@ -134,6 +176,7 @@ def acquire_lock(session_id: str) -> bool:
 
     lock = SessionLock(
         holder=session_id,
+        project_id=project_id,
         acquired_at=datetime.now(timezone.utc),
         ttl_minutes=config.SESSION_LOCK_TTL_MINUTES,
         pid=os.getpid(),
@@ -180,6 +223,18 @@ def add_alert(
         message=message,
     ))
     save_model(config.ALERTS_FILE, alerts)
+
+
+# ── Commits ────────────────────────────────────────────────────────
+
+def save_commits(project_id: str, commits: CommitLog) -> None:
+    """Persiste o log de commits do projeto em commits.json."""
+    save_model(config.project_dir(project_id) / "commits.json", commits)
+
+
+def load_commits(project_id: str) -> CommitLog:
+    result = load_model(config.project_dir(project_id) / "commits.json", CommitLog)
+    return result or CommitLog()
 
 
 # ── Global Stats ───────────────────────────────────────────────────

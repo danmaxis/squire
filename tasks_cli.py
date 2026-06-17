@@ -219,6 +219,7 @@ def cmd_add(
     tdd: bool = True,
     test_author: TestAuthor = TestAuthor.claude,
     ask_advanced: bool = True,
+    spec: Optional[bool] = None,
 ) -> None:
     _load_project_or_exit(project_id)
     task_list = _load_tasks(project_id)
@@ -251,20 +252,41 @@ def cmd_add(
     print(f"{GREEN}✓{RESET} Task '{task_id}' adicionada: {title}{effort_str}")
 
     # Oferecer atualizar SPEC.md
-    _offer_spec_update(project_id)
+    _offer_spec_update(project_id, choice=spec)
 
 
-def _offer_spec_update(project_id: str) -> None:
-    """Oferece atualizar SPEC.md após mudança nas tasks."""
+def _offer_spec_update(project_id: str, choice: Optional[bool] = None) -> None:
+    """Oferece atualizar SPEC.md após mudança nas tasks.
+
+    choice=True roda sem perguntar; choice=False pula silenciosamente;
+    choice=None mantém o prompt interativo.
+    """
     spec_path = _get_spec_path(project_id)
     if not spec_path.exists():
         return
-    try:
-        resp = input("  Atualizar SPEC.md? [y/N] ").strip().lower()
-    except (EOFError, KeyboardInterrupt):
+    if choice is False:
         return
-    if resp == "y":
-        cmd_spec_update(project_id)
+    if choice is None:
+        try:
+            resp = input("  Atualizar SPEC.md? [y/N] ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            return
+        if resp != "y":
+            return
+    cmd_spec_update(project_id)
+
+
+def _session_lock_alive() -> bool:
+    """True se há um session.lock com pid vivo."""
+    from models import SessionLock
+    lock = ckpt.load_model(config.SESSION_LOCK_FILE, SessionLock)
+    if lock is None or not lock.pid:
+        return False
+    try:
+        os.kill(lock.pid, 0)
+        return True
+    except (ProcessLookupError, PermissionError):
+        return False
 
 
 def _get_spec_path(project_id: str) -> "Path":
@@ -371,7 +393,7 @@ def cmd_edit(project_id: str, task_id: Optional[str] = None) -> None:
         os.unlink(tmp_path)
 
 
-def cmd_rm(project_id: str, task_id: str) -> None:
+def cmd_rm(project_id: str, task_id: str, assume_yes: bool = False) -> None:
     _load_project_or_exit(project_id)
     task_list = _load_tasks(project_id)
 
@@ -381,22 +403,23 @@ def cmd_rm(project_id: str, task_id: str) -> None:
         sys.exit(1)
 
     print(f"  Remover: {BOLD}{task.id}{RESET}  {task.title}  [{task.status.value}]")
-    try:
-        resp = input("  Confirmar? [y/N] ").strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        print("\nCancelado.")
-        sys.exit(0)
+    if not assume_yes:
+        try:
+            resp = input("  Confirmar? [y/N] ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print("\nCancelado.")
+            sys.exit(0)
 
-    if resp != "y":
-        print("Cancelado.")
-        sys.exit(0)
+        if resp != "y":
+            print("Cancelado.")
+            sys.exit(0)
 
     task_list.tasks = [t for t in task_list.tasks if t.id != task_id]
     _save_tasks(project_id, task_list)
     print(f"{GREEN}✓{RESET} Task '{task_id}' removida.")
 
 
-def cmd_split(project_id: str, task_id: str) -> None:
+def cmd_split(project_id: str, task_id: str, assume_yes: bool = False) -> None:
     project = _load_project_or_exit(project_id)
     task_list = _load_tasks(project_id)
 
@@ -437,13 +460,21 @@ def cmd_split(project_id: str, task_id: str) -> None:
     if subtasks_data is None:
         sys.exit(1)
 
-    # Loop de confirmação (máximo 1 refinamento)
-    for attempt in range(2):
+    def _display_subtasks(data: list[dict]) -> None:
         print(f"\n{BOLD}Subtasks propostas:{RESET}")
-        for i, st in enumerate(subtasks_data, 1):
+        for i, st in enumerate(data, 1):
             print(f"  {i}. {BOLD}{st.get('title', '?')}{RESET}")
             if st.get("description"):
                 print(f"     {DIM}{st['description']}{RESET}")
+
+    # --yes: aceita a primeira proposta sem confirmação
+    confirm_rounds = 0 if assume_yes else 2
+    if assume_yes:
+        _display_subtasks(subtasks_data)
+
+    # Loop de confirmação (máximo 1 refinamento)
+    for attempt in range(confirm_rounds):
+        _display_subtasks(subtasks_data)
 
         try:
             resp = input(f"\n  Confirmar? [y/n/feedback] ").strip()
@@ -484,18 +515,43 @@ def cmd_split(project_id: str, task_id: str) -> None:
     print(f"\n{GREEN}✓{RESET} {len(subtasks)} subtask(s) salva(s) em '{task_id}'.")
 
 
-def cmd_plan(project_id: str, desc: Optional[str] = None) -> None:
+def cmd_plan(
+    project_id: str,
+    desc: Optional[str] = None,
+    mode: Optional[str] = None,
+    refine: bool = True,
+    assume_yes: bool = False,
+    spec: Optional[bool] = None,
+) -> None:
     project = _load_project_or_exit(project_id)
     task_list = _load_tasks(project_id)
 
+    # --yes implica fluxo sem prompts: sem refinamento, SPEC só com --spec explícito
+    if assume_yes:
+        refine = False
+        if spec is None:
+            spec = False
+        # Não competir com uma sessão ativa pelo tasks.json (o squire grava
+        # de volta a cada transição e sobrescreveria o plano)
+        if _session_lock_alive():
+            print(
+                f"{RED}✗{RESET} Sessão squire ativa — plan --yes recusado para "
+                f"não disputar o tasks.json. Aguarde ou use 'squire kill'.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
     # Coletar descrição se não fornecida
     if not desc and not project.description:
-        print(f"{CYAN}→{RESET} Descreva o que o projeto deve fazer (Enter em branco para usar o nome do projeto):")
-        try:
-            desc = input("  > ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print("\nCancelado.")
-            sys.exit(0)
+        if assume_yes:
+            print(f"{YELLOW}⚠{RESET} Sem descrição (--desc) — usando o nome do projeto como base.")
+        else:
+            print(f"{CYAN}→{RESET} Descreva o que o projeto deve fazer (Enter em branco para usar o nome do projeto):")
+            try:
+                desc = input("  > ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print("\nCancelado.")
+                sys.exit(0)
 
     effective_desc = desc or project.description or project.name
     stack_str = ", ".join(project.stack) if project.stack else "não especificado"
@@ -548,14 +604,15 @@ def cmd_plan(project_id: str, desc: Optional[str] = None) -> None:
         sys.exit(1)
     tasks_data, last_raw = result
 
-    MAX_REFINEMENTS = 3
+    MAX_REFINEMENTS = 3 if refine else 0
 
     for iteration in range(MAX_REFINEMENTS + 1):
         _display_draft(tasks_data)
 
         if iteration == MAX_REFINEMENTS:
-            print(f"{YELLOW}⚠{RESET} Limite de {MAX_REFINEMENTS} refinamentos atingido.")
-            print("  Salvando rascunho atual.")
+            if refine:
+                print(f"{YELLOW}⚠{RESET} Limite de {MAX_REFINEMENTS} refinamentos atingido.")
+                print("  Salvando rascunho atual.")
             break
 
         try:
@@ -579,17 +636,26 @@ def cmd_plan(project_id: str, desc: Optional[str] = None) -> None:
             break
         tasks_data, last_raw = result
 
-    # Perguntar replace ou append
-    if task_list.tasks:
-        print(f"\n  Tasks existentes: {len(task_list.tasks)}")
-        try:
-            mode = input("  Substituir ou adicionar? [r/a] ").strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            print("\nCancelado.")
-            sys.exit(0)
-        if mode not in ("r", "a"):
-            print(f"{YELLOW}⚠{RESET} Opção inválida — operação cancelada.")
-            sys.exit(1)
+    # Resolver replace ou append (--mode > prompt; Enter = adicionar)
+    if mode in ("append", "a"):
+        mode = "a"
+    elif mode in ("replace", "r"):
+        mode = "r"
+    elif task_list.tasks:
+        if assume_yes:
+            mode = "a"  # default não-destrutivo
+        else:
+            print(f"\n  Tasks existentes: {len(task_list.tasks)}")
+            try:
+                mode = input("  Substituir ou adicionar? [r/a] (Enter=adicionar) ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                print("\nCancelado.")
+                sys.exit(0)
+            if mode == "":
+                mode = "a"
+            if mode not in ("r", "a"):
+                print(f"{YELLOW}⚠{RESET} Opção inválida — operação cancelada.")
+                sys.exit(1)
     else:
         mode = "r"  # sem tasks existentes, sempre substituir
 
@@ -634,13 +700,16 @@ def cmd_plan(project_id: str, desc: Optional[str] = None) -> None:
     action = "substituídas por" if mode == "r" else "adicionadas:"
     print(f"\n{GREEN}✓{RESET} Tasks {action} {len(new_tasks)} nova(s).")
 
-    # Oferecer salvar SPEC.md
-    try:
-        resp = input("\n  Salvar SPEC.md? [y/N] ").strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        resp = ""
-    if resp == "y":
+    # Oferecer salvar SPEC.md (--spec roda direto, --no-spec/--yes pula)
+    if spec is True:
         cmd_spec_update(project_id)
+    elif spec is None:
+        try:
+            resp = input("\n  Salvar SPEC.md? [y/N] ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            resp = ""
+        if resp == "y":
+            cmd_spec_update(project_id)
 
 
 def _display_draft(tasks_data: list[dict]) -> None:
@@ -706,8 +775,9 @@ def main() -> None:
         except ValueError:
             test_author = TestAuthor.claude
         no_ask = "--no-ask" in rest
+        spec = True if "--spec" in rest else (False if "--no-spec" in rest else None)
         cmd_add(project_id, title, desc, task_id, skip, max_att, max_hom,
-                effort, tdd, test_author, ask_advanced=not no_ask)
+                effort, tdd, test_author, ask_advanced=not no_ask, spec=spec)
 
     elif subcmd == "edit":
         if not args:
@@ -719,15 +789,15 @@ def main() -> None:
 
     elif subcmd == "rm":
         if len(args) < 2:
-            print(f"{RED}✗{RESET} Uso: tasks rm <projeto> <id>", file=sys.stderr)
+            print(f"{RED}✗{RESET} Uso: tasks rm <projeto> <id> [--yes]", file=sys.stderr)
             sys.exit(1)
-        cmd_rm(args[0], args[1])
+        cmd_rm(args[0], args[1], assume_yes="--yes" in args[2:])
 
     elif subcmd == "split":
         if len(args) < 2:
-            print(f"{RED}✗{RESET} Uso: tasks split <projeto> <id>", file=sys.stderr)
+            print(f"{RED}✗{RESET} Uso: tasks split <projeto> <id> [--yes]", file=sys.stderr)
             sys.exit(1)
-        cmd_split(args[0], args[1])
+        cmd_split(args[0], args[1], assume_yes="--yes" in args[2:])
 
     elif subcmd == "plan":
         if not args:
@@ -736,7 +806,18 @@ def main() -> None:
         project_id = args[0]
         rest = args[1:]
         desc = _get_flag(rest, "--desc")
-        cmd_plan(project_id, desc)
+        mode = _get_flag(rest, "--mode")
+        if mode is not None and mode not in ("append", "replace", "a", "r"):
+            print(f"{RED}✗{RESET} --mode deve ser 'append' ou 'replace'.", file=sys.stderr)
+            sys.exit(1)
+        spec = True if "--spec" in rest else (False if "--no-spec" in rest else None)
+        cmd_plan(
+            project_id, desc,
+            mode=mode,
+            refine="--no-refine" not in rest,
+            assume_yes="--yes" in rest,
+            spec=spec,
+        )
 
     elif subcmd == "spec":
         if not args:
@@ -767,12 +848,13 @@ def _print_help() -> None:
 
   {CYAN}squire tasks{RESET} <projeto>                    Lista tasks (alias de list)
   {CYAN}squire tasks list{RESET}   <projeto>              Lista tasks com status
-  {CYAN}squire tasks add{RESET}    <projeto> --title "..." [--desc "..."] [--id "..."] [--skip-homolog] [--max N] [--max-homolog N] [--effort low|medium|high] [--no-tdd] [--test-author claude|local] [--no-ask]
+  {CYAN}squire tasks add{RESET}    <projeto> --title "..." [--desc "..."] [--id "..."] [--skip-homolog] [--max N] [--max-homolog N] [--effort low|medium|high] [--no-tdd] [--test-author claude|local] [--no-ask] [--spec|--no-spec]
   {CYAN}squire tasks spec{RESET}   <projeto>              Gera/atualiza SPEC.md via Claude
   {CYAN}squire tasks edit{RESET}   <projeto> [<id>]       Edita task no $EDITOR (sem id = edita tasks.json)
-  {CYAN}squire tasks rm{RESET}     <projeto> <id>         Remove task por ID
-  {CYAN}squire tasks split{RESET}  <projeto> <id>         Claude subdivide task em subtasks
-  {CYAN}squire tasks plan{RESET}   <projeto> [--desc "..."]  Claude planeja tasks (rascunho + refinamento)
+  {CYAN}squire tasks rm{RESET}     <projeto> <id> [--yes]  Remove task por ID (--yes pula confirmação)
+  {CYAN}squire tasks split{RESET}  <projeto> <id> [--yes]  Claude subdivide task (--yes aceita 1ª proposta)
+  {CYAN}squire tasks plan{RESET}   <projeto> [--desc "..."] [--mode append|replace] [--no-refine] [--yes] [--spec|--no-spec]
+                                              Claude planeja tasks (--yes = sem prompts, append por padrão)
 """)
 
 

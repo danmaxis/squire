@@ -74,6 +74,12 @@ Costs ~1000× more per call than tier 1, so the goal is a ratio of
 | `viking.py`            | Loads `<repo>/docs/viking/*.md` (per-domain restrictions)               |
 | `progress.py`          | Generates/reads `progress.txt` (long-term memory)                       |
 | `tasks_cli.py`         | `squire tasks` subcommands (list/add/edit/rm/split/plan)                |
+| `alerts_cli.py`        | `squire alerts` subcommands (list/ack/rm)                               |
+| `doctor.py`            | `squire doctor` — environment health check (+ `--fix` for dead locks)   |
+| `agent_cli.py`         | `squire agent` — executes the dashboard command queue (`commands/`)     |
+| `fix_cli.py`           | `squire fix` — Claude fixes a blocked task (full cycle)                 |
+| `accounting.py`        | Shared cost/usage accounting (orchestrator + fix)                        |
+| `gitops.py`            | Shared guarded commits (snapshot, task, fix)                             |
 | `squire` (bash)        | CLI front-end: dispatches subcommands, manages bg/lock/log              |
 
 > **Insight:** the boundary between `squire.py` and `inner_loop.py` is
@@ -82,6 +88,29 @@ Costs ~1000× more per call than tier 1, so the goal is a ratio of
 > decisions about continuing/escalating/committing belong to `Squire`.
 > This lets you swap the backend (`litellm` → `opencode`) or add a RED
 > phase without changing the orchestrator.
+
+### Squire Dashboard as a second writer
+
+The dashboard (Next.js, see `docs/en/configuration.md`) lives **inside the
+repo** under `dashboard/` and runs as a separate container in the stack
+(`deploy/docker-compose.yml`). It is mostly a reader — it polls the JSONs under
+`SQUIRE_DATA_PATH`. From P3 onwards it can also write, but only outside
+`Squire`'s critical path:
+
+- `POST /api/alerts/ack` — flip `acknowledged` or remove an entry from
+  `alerts.json`.
+- `POST /api/projects/<id>/budget` — patch
+  `Checkpoint.rate_limit.max_daily_usd` or `max_calls_per_window`.
+- `POST /api/projects/<id>/tasks/<task-id>/action` — `retry` resets
+  attempts/rejections, `approve` force-approves homologation, `skip`
+  flips `skip_homologation`.
+
+Every mutation routes through `writeJsonAtomic` (`.tmp` → `rename`),
+the same pattern `checkpoint.atomic_write_json` uses. Before mutating,
+the route reads `session.lock` — if squire is running the target
+project, it responds 409 and the operator waits for the session to
+release. Squire remains the sole writer while running; the dashboard
+edits only between sessions.
 
 ## Task lifecycle
 
@@ -106,7 +135,7 @@ where it left off. Statuses from the `TaskStatus` enum
 `testing`, `homologating`, `completed`, `blocked`.
 
 In parallel with task status, the `Cursor`
-([`models.py:171`](../../models.py)) tracks the current `CursorStep`
+([`models.py:206`](../../models.py)) tracks the current `CursorStep`
 within a round: `planning`, `red_phase` (TDD: writing tests before
 implementation), `llm_execution`, `testing`, `homologation`, `completed`.
 
@@ -114,7 +143,7 @@ implementation), `llm_execution`, `testing`, `homologation`, `completed`.
 
 1. **Test snapshot** (TDD) — before implementation,
    `InnerLoop.snapshot_test_hashes`
-   ([`inner_loop.py:71`](../../inner_loop.py)) computes SHA256 of each
+   ([`inner_loop.py:72`](../../inner_loop.py)) computes SHA256 of each
    `test_*.py`. After execution, `check_test_integrity` compares; if a
    test was modified, squire reverts via `git checkout` and returns an
    error to the LLM.
@@ -124,13 +153,13 @@ implementation), `llm_execution`, `testing`, `homologation`, `completed`.
    instruction, call backend, run tests. Every 5 failures, ask Claude
    Code for help (`TechnicalEscalation.unblock`).
 4. **Mechanical gate** — before spending a Claude Code call,
-   `_pre_homologation_checks` ([`squire.py:504`](../../squire.py)) runs
+   `_pre_homologation_checks` ([`squire.py:648`](../../squire.py)) runs
    typecheckers/compilers per language (tsc, cargo check, mvn compile,
    go build, etc.) and detects anti-vibe-coding patterns (`any`,
    `# type: ignore`, `unsafe`, `catch unreachable`). Failure → back to
    the inner loop without consuming budget.
 5. **Homologation** — `Homologator.review`
-   ([`homologator.py:63`](../../homologator.py)) sends code + context
+   ([`homologator.py:59`](../../homologator.py)) sends code + context
    to Claude Code, receives `HomologationResult`. Approved: commit +
    next task. Rejected: feedback feeds back to the inner loop.
 6. **Automatic escalations** — loop detected (same error in N consecutive
@@ -190,7 +219,7 @@ Details in [State and Recovery](state-and-recovery.md).
 > Local LLMs have a strong bias toward "making tests pass" — including
 > rewriting them. Squire hashes tests before implementation, verifies
 > after, and reverts via git if modified. The rule also appears literally
-> in every instruction sent to the backend (see `inner_loop.py:252`).
+> in every instruction sent to the backend (see `inner_loop.py:254`).
 > Defense in depth: prompt + check + revert.
 
 > **Remark:** parallelism between tasks is not supported (one task at a

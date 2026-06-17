@@ -1,0 +1,107 @@
+# Dockerfile.workspace — container "workspace" do squire.
+#
+# Contém o orquestrador (squire.py), o agente da fila de comandos
+# (agent_cli.py), sshd e os toolchains que o inner loop precisa
+# (python, git, node, claude, opencode). É o container no qual o
+# operador faz SSH; o dashboard roda em container separado e ambos
+# compartilham o volume de estado.
+#
+# Base Debian bookworm (glibc): o binário opencode é glibc-prebuilt,
+# então Alpine/musl está fora.
+FROM python:3.11-slim-bookworm
+
+# ── Versões fixadas (reprodutibilidade) ─────────────────────────────
+# claude: casa com o `claude --version` do host (2.1.179).
+# node: 22.x para casar com o host onde os projetos foram criados.
+ARG CLAUDE_VERSION=2.1.179
+ARG NODE_MAJOR=22
+ARG S6_OVERLAY_VERSION=3.2.0.2
+# Fixado na versão do host (opencode --version). Deixe vazio para "latest".
+ARG OPENCODE_VERSION=1.15.13
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# ── Pacotes de sistema (uma camada) ─────────────────────────────────
+# procps → ps (squire/doctor usam); xz-utils → extrair s6; openssh-server
+# → acesso externo; build-essential FICA DE FORA (adicione via projeto
+# se um npm module nativo bloquear).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git \
+        openssh-server \
+        ca-certificates \
+        curl \
+        xz-utils \
+        procps \
+        sudo \
+        less \
+        nano \
+    && curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── s6-overlay (PID 1: reaping de zumbis + supervisão de serviços) ──
+ADD "https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-noarch.tar.xz" /tmp/s6-noarch.tar.xz
+ADD "https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-x86_64.tar.xz" /tmp/s6-x86_64.tar.xz
+RUN tar -C / -Jxpf /tmp/s6-noarch.tar.xz \
+    && tar -C / -Jxpf /tmp/s6-x86_64.tar.xz \
+    && rm -f /tmp/s6-noarch.tar.xz /tmp/s6-x86_64.tar.xz
+
+# ── claude (homologação/escalação) ──────────────────────────────────
+# Instalado via npm global e fixado; o homologator parseia o
+# `claude --print --output-format json`, então a versão importa.
+RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_VERSION}" \
+    && npm cache clean --force
+
+# ── Usuário ai-debian (uid/gid 1000) ────────────────────────────────
+# Casa com os arquivos de estado (0600 uid 1000) e com o user 1000:1000
+# do container do dashboard.
+RUN groupadd -g 1000 ai-debian \
+    && useradd -m -u 1000 -g 1000 -s /bin/bash ai-debian \
+    && mkdir -p /home/ai-debian/.ssh /home/ai-debian/projects \
+    && chown -R ai-debian:ai-debian /home/ai-debian \
+    && chmod 700 /home/ai-debian/.ssh
+
+# ── opencode (backend de coding padrão) ─────────────────────────────
+# Instalado como ai-debian no ~/.opencode/bin (instalador oficial).
+# VERSION="" → instala latest; senão fixa a release (o instalador trata
+# "latest" como a tag literal vlatest, que não existe).
+USER ai-debian
+RUN if [ -n "${OPENCODE_VERSION}" ]; then \
+        curl -fsSL https://opencode.ai/install | VERSION="${OPENCODE_VERSION}" bash; \
+    else \
+        curl -fsSL https://opencode.ai/install | bash; \
+    fi
+USER root
+
+# ── Código do squire + venv ─────────────────────────────────────────
+# Copiamos o repo (self-contained: doctor passa no primeiro boot). O
+# compose pode sobrepor com um bind-mount do repo para dev ao vivo.
+COPY --chown=ai-debian:ai-debian . /home/ai-debian/squire
+RUN python -m venv /home/ai-debian/squire/.venv \
+    && /home/ai-debian/squire/.venv/bin/pip install --no-cache-dir -e /home/ai-debian/squire \
+    && chown -R ai-debian:ai-debian /home/ai-debian/squire/.venv \
+    && ln -sf /home/ai-debian/squire/squire /usr/local/bin/squire
+
+# ── sshd: só chave pública, sem root, sem senha ─────────────────────
+RUN mkdir -p /run/sshd \
+    && sed -i \
+        -e 's/^#\?PermitRootLogin.*/PermitRootLogin no/' \
+        -e 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' \
+        -e 's/^#\?PubkeyAuthentication.*/PubkeyAuthentication yes/' \
+        /etc/ssh/sshd_config \
+    && printf '\nAllowUsers ai-debian\n' >> /etc/ssh/sshd_config
+
+# ── Init scripts (cont-init.d, oneshot, root) + serviços (services.d)
+COPY docker/cont-init.d/ /etc/cont-init.d/
+COPY docker/services.d/  /etc/services.d/
+COPY docker/profile.d/squire.sh /etc/profile.d/squire.sh
+RUN chmod +x /etc/cont-init.d/* /etc/services.d/*/run /etc/profile.d/squire.sh
+
+# Porta SSH (mapeada para 2222 no host pelo compose).
+EXPOSE 22
+
+# s6 inicia tudo: cont-init.d (chown/ssh-keygen) → services.d (sshd, agent).
+ENTRYPOINT ["/init"]

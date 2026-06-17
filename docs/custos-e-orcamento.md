@@ -31,10 +31,10 @@ Para cada chamada (Claude Code ou backend local), o squire grava:
 - **`tokens_unknown`** — flag `true` quando o backend não reportou uso
   (ex: opencode/crush CLI)
 
-Esses campos vivem no struct `TokenUsage` ([`models.py:266`](../models.py)).
+Esses campos vivem no struct `TokenUsage` ([`models.py:345`](../models.py)).
 
 A contabilidade é centralizada em `Squire._account_call`
-([`squire.py:88`](../squire.py)) que:
+([`squire.py:104`](../squire.py)) que:
 
 1. Soma `cost_usd` em `GlobalStats.cost_estimate_usd` (acumulado do dia)
 2. Soma `tokens` em `GlobalStats.daily_tokens`
@@ -48,7 +48,7 @@ funcione.
 
 ## Tabela de preços
 
-Em `MODEL_PRICING_PER_1M` ([`config.py:73`](../config.py)):
+Em `MODEL_PRICING_PER_1M` ([`config.py:111`](../config.py)):
 
 | Modelo               | Input ($/1M)  | Output ($/1M) |
 | -------------------- | ------------- | ------------- |
@@ -70,7 +70,7 @@ desatualize, o número permanece correto.
 
 > **Insight — fallback de cálculo.**
 > Se o Claude omitir `total_cost_usd` mas reportar tokens + model,
-> `_extract_usage_from_claude_json` ([`homologator.py:23`](../homologator.py))
+> `_extract_usage_from_claude_json` ([`homologator.py:25`](../homologator.py))
 > recompõe o custo via tabela. Defense in depth.
 
 ## Budget USD diário

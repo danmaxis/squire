@@ -342,6 +342,10 @@ class InnerLoop:
 
         return None  # sintaxe ok
 
+    def run_tests(self) -> dict:
+        """API pública para rodar os testes do projeto (usada por `squire fix`)."""
+        return self._run_tests()
+
     def _run_tests(self) -> dict:
         """
         Roda testes do projeto. Detecta o runner baseado nos arquivos presentes.

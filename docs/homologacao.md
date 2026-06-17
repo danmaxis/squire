@@ -52,6 +52,55 @@ Cada **rodada** é um par `inner loop + homologação`. Uma task tem até
 máximo uma chamada Claude para review + possíveis chamadas extras de
 escalação.
 
+### Falhas de infra não consomem rodada
+
+O resultado do review carrega um `error_kind` que classifica falhas de
+execução (não de veredito):
+
+- **`infra`** (transiente): Claude retornou JSON inválido ("Parse error"),
+  stdout vazio, timeout de 180s ou exit code ≠ 0. A rodada ganha **um
+  retry gratuito** após 10s — só a segunda falha consecutiva consome a
+  rodada. Antes disso, um soluço do CLI queimava uma das 5 rodadas.
+- **`config`** (não se resolve sozinho): binário do Claude ausente. A
+  task é bloqueada imediatamente com mensagem acionável, em vez de
+  queimar as 5 rodadas contra o mesmo erro.
+
+Cada chamada real (incluindo o retry) é contabilizada em custo e rate
+limit normalmente.
+
+### Build de container exige humano (DinD adiado)
+
+Quando o squire roda no container `workspace`, o Docker **não** está
+disponível (montar o socket do host erodiria a contenção — ver
+[estado-e-recuperacao.md](estado-e-recuperacao.md)). Se o inner loop
+detecta que os testes/build tentaram usar Docker (`docker: command not
+found`, `Cannot connect to the Docker daemon`, etc.), a task é **bloqueada
+imediatamente** com um alerta crítico `requires_container_build`, em vez de
+queimar as tentativas restantes. O humano builda/verifica a imagem
+manualmente (ou habilita DinD rootless no futuro) e desbloqueia a task.
+
+### Log de vereditos (`homologation_log.json`)
+
+Todo veredito (aprovações, rejeições e auto-aprovações de
+`skip_homologation` — nunca erros de infra) é persistido na íntegra em
+`projects/<id>/homologation_log.json`, com cap das últimas 50 entradas por
+task. Diferente de `Task.rejection_summaries` (resumos de 300 chars usados
+pela detecção de loops), aqui `feedback` e `fix_suggestion` ficam completos:
+
+```json
+{"entries": [{
+  "timestamp": "…", "task_id": "task-009", "attempt": 3,
+  "approved": false, "summary": "…",
+  "feedback": "<texto completo>", "fix_suggestion": "<passos completos>",
+  "suggestions": [], "source": "session",
+  "cost_usd": 0.042, "model": "claude-opus-4-7"
+}]}
+```
+
+`source` distingue vereditos do loop normal (`"session"`) dos do ciclo
+`squire fix` (`"fix"`). É a fonte do painel de triagem de tasks bloqueadas
+no dashboard e o contexto que o `squire fix` injeta na correção.
+
 ## Estrutura do veredito
 
 O Claude Code é invocado via `claude --print --output-format json`. Ele
@@ -89,7 +138,7 @@ Antes de gastar uma chamada Claude, o squire roda **verificações mecânicas
 locais** sobre o trabalho do LLM local. Se algo óbvio está errado, devolve
 para o inner loop com violations como feedback — sem queimar budget Claude.
 
-Implementação: `_pre_homologation_checks` ([`squire.py:504`](../squire.py)).
+Implementação: `_pre_homologation_checks` ([`squire.py:648`](../squire.py)).
 
 ### Por linguagem
 
@@ -153,7 +202,7 @@ sintoma de outra coisa.
 ### Loop de rejeição
 
 `Task.rejection_summaries` mantém as últimas 10 `summary` de rejeições.
-A função `_is_looping` ([`squire.py:252`](../squire.py)) verifica se as
+A função `_is_looping` ([`squire.py:374`](../squire.py)) verifica se as
 últimas N (default `SQUIRE_LOOP_DETECT=3`) rejeições compartilham 4+ palavras
 significativas:
 
@@ -230,7 +279,7 @@ Vale mencionar aqui porque também é uma chamada paga: na fase RED, se
 
 Quando o rate limit ativa entre rodadas (`can_afford` retorna `False`),
 o squire **não dorme**. Em vez disso, chama `_wait_productively`
-([`squire.py:482`](../squire.py)) que continua executando o inner loop
+([`squire.py:626`](../squire.py)) que continua executando o inner loop
 com o feedback acumulado da última rejeição:
 
 ```python

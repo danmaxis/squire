@@ -168,6 +168,37 @@ class CommitSummary(BaseModel):
 
 class CommitLog(BaseModel):
     commits: list[CommitSummary] = []
+    # Preenchido quando `git log` falha; permite ao dashboard distinguir
+    # "projeto sem commits ainda" de "esperava arquivo mas git quebrou".
+    error: Optional[str] = None
+
+
+# ── Homologation log ───────────────────────────────────────────────
+
+class HomologationLogEntry(BaseModel):
+    """Veredito completo de uma rodada de homologação.
+
+    Diferente de Task.rejection_summaries (300 chars, usado pela detecção
+    de loops), aqui o feedback e o fix_suggestion são preservados na
+    íntegra — é o que o dashboard mostra na triagem de tasks bloqueadas
+    e o que `squire fix` usa como contexto. Erros de infra não viram
+    entrada (não são vereditos).
+    """
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    task_id: str
+    attempt: int = 0
+    approved: bool = False
+    summary: str = ""
+    feedback: str = ""
+    fix_suggestion: str = ""
+    suggestions: list[str] = []
+    source: str = "session"  # "session" (loop do orquestrador) | "fix" (squire fix)
+    cost_usd: float = 0.0
+    model: Optional[str] = None
+
+
+class HomologationLog(BaseModel):
+    entries: list[HomologationLogEntry] = []
 
 
 # ── Checkpoint ─────────────────────────────────────────────────────
@@ -225,6 +256,7 @@ class Checkpoint(BaseModel):
 
 class SessionLock(BaseModel):
     holder: str
+    project_id: Optional[str] = None
     acquired_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     ttl_minutes: int = 60
     pid: int = 0
@@ -260,7 +292,54 @@ class GlobalStats(BaseModel):
     daily_calls_unknown_cost: int = 0
     projects_touched_today: list[str] = []
     tasks_completed_today: int = 0
+    # Contadores-base da taxa de aprovação (tasks com skip_homologation não contam)
+    tasks_homologated_today: int = 0
+    tasks_approved_first_try_today: int = 0
     approval_first_try_rate: float = 0.0  # % aprovadas na 1ª homologação
+
+
+# ── Command queue (dashboard → agente host) ───────────────────────
+
+class CommandType(str, Enum):
+    """Whitelist de comandos que o agente host aceita executar."""
+    new_project = "new_project"
+    run = "run"
+    resume = "resume"
+    kill = "kill"
+    plan_tasks = "plan_tasks"
+    split_task = "split_task"
+    fix_task = "fix_task"
+
+
+class CommandStatus(str, Enum):
+    pending = "pending"
+    running = "running"
+    done = "done"
+    failed = "failed"
+
+
+class QueuedCommand(BaseModel):
+    """Comando enfileirado pelo dashboard em commands/pending/<id>.json."""
+    id: str
+    type: CommandType
+    project_id: Optional[str] = None  # None apenas para kill
+    args: dict = {}
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    requested_by: str = "dashboard"
+
+
+class CommandResult(BaseModel):
+    """Resultado escrito pelo agente em commands/done/<id>.json."""
+    id: str
+    type: CommandType
+    project_id: Optional[str] = None
+    status: CommandStatus
+    exit_code: Optional[int] = None
+    stdout_tail: str = ""
+    stderr_tail: str = ""
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    error: Optional[str] = None
 
 
 class TokenUsage(BaseModel):

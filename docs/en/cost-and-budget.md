@@ -32,10 +32,10 @@ For each call (Claude Code or local backend), squire records:
   (e.g., opencode/crush CLI)
 
 These fields live in the `TokenUsage` struct
-([`models.py:266`](../../models.py)).
+([`models.py:345`](../../models.py)).
 
 Accounting is centralized in `Squire._account_call`
-([`squire.py:88`](../../squire.py)) which:
+([`squire.py:104`](../../squire.py)) which:
 
 1. Adds `cost_usd` to `GlobalStats.cost_estimate_usd` (daily accumulated)
 2. Adds `tokens` to `GlobalStats.daily_tokens`
@@ -49,7 +49,7 @@ And `RateLimiter.record_call(cost_usd=…)`
 
 ## Price table
 
-In `MODEL_PRICING_PER_1M` ([`config.py:73`](../../config.py)):
+In `MODEL_PRICING_PER_1M` ([`config.py:111`](../../config.py)):
 
 | Model                | Input ($/1M)  | Output ($/1M) |
 | -------------------- | ------------- | ------------- |
@@ -72,7 +72,7 @@ stale, the number remains correct.
 > **Insight — calculation fallback.**
 > If Claude omits `total_cost_usd` but reports tokens + model,
 > `_extract_usage_from_claude_json`
-> ([`homologator.py:23`](../../homologator.py)) recomposes cost via the
+> ([`homologator.py:25`](../../homologator.py)) recomposes cost via the
 > table. Defense in depth.
 
 ## Daily USD budget

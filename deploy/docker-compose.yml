@@ -1,0 +1,93 @@
+# Stack do squire — dois containers compartilhando o volume de estado.
+#
+#   workspace : orquestrador + agente da fila + sshd + toolchains + repos
+#   dashboard : imagem Next.js existente (inalterada), UI read-write
+#
+# Controle externo (LAN): SSH em :2222 (workspace) e HTTP em :3101
+# (dashboard). Sem `version:` — obsoleto no Compose v2.
+#
+# Segredos vêm do .env AO LADO deste arquivo (deploy/.env, gitignored):
+#   DASHBOARD_WRITE_TOKEN=...
+# (o SQUIRE_LITELLM_KEY do Ollama é placeholder "ollama", não é segredo.)
+
+services:
+  workspace:
+    build:
+      context: ..                      # raiz do repo squire
+      dockerfile: Dockerfile.workspace
+    image: squire-workspace
+    container_name: squire-workspace
+    restart: unless-stopped
+    # Teto de memória rígido. A VM tem 4.8 GiB e o swap já está saturado;
+    # memswap_limit == mem_limit PROÍBE o workspace de usar swap do host
+    # (um teste gerado pelo LLM não pode fazer o host inteiro thrash).
+    mem_limit: 3g
+    memswap_limit: 3g
+    ports:
+      - "2222:22"                       # SSH (LAN)
+    environment:
+      SQUIRE_STATE_ROOT: /data
+      SQUIRE_AGENT_REPO_ROOT: /home/ai-debian/projects
+      SQUIRE_LITELLM_URL: http://192.168.50.24:11434/v1
+      SQUIRE_LITELLM_MODEL: journal-synth:latest
+      SQUIRE_LITELLM_KEY: ollama        # placeholder — Ollama não exige auth
+      SQUIRE_CODING_BACKEND: opencode
+      OPENAI_API_KEY: ollama            # opencode aponta para o Ollama local
+      SQUIRE_COMMAND_TIMEOUT: "1800"
+      SQUIRE_IMPLEMENT_TIMEOUT: "900"
+    volumes:
+      - squire-state:/data                              # estado (fs único p/ os.replace)
+      - squire-projects:/home/ai-debian/projects        # repos trabalhados
+      # Credenciais do claude — read-only, NUNCA embutidas na imagem.
+      # Se o claude precisar ESCREVER ~/.claude.json (verificar no teste),
+      # troque para um volume nomeado semeado uma vez (nunca camada).
+      - /home/ai-debian/.claude/.credentials.json:/home/ai-debian/.claude/.credentials.json:ro
+      - /home/ai-debian/.claude.json:/home/ai-debian/.claude.json:ro
+      # Chave pública para SSH (reusa a authorized_keys do host; aponte
+      # para outro arquivo se preferir uma chave dedicada ao container).
+      - /home/ai-debian/.ssh/authorized_keys:/home/ai-debian/.ssh/authorized_keys:ro
+    networks:
+      - squire-net
+
+  dashboard:
+    build:
+      context: ../dashboard             # sub-app no monorepo (squire/dashboard)
+      dockerfile: Dockerfile
+    image: squire-dashboard
+    container_name: squire-dashboard
+    restart: unless-stopped
+    mem_limit: 512m
+    memswap_limit: 512m
+    # uid 1000: os arquivos de estado são 0600 ai-debian e o dashboard é
+    # segundo escritor (ack/dismiss de alertas, fila de comandos).
+    user: "1000:1000"
+    ports:
+      - "3101:3000"                     # HTTP (LAN; 3100 ocupada por browserless)
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+      SQUIRE_DATA_PATH: /data
+      NEXT_PUBLIC_REFRESH_INTERVAL: "30000"
+      # Sem token, todas as rotas de escrita respondem 503. Vem do deploy/.env.
+      DASHBOARD_WRITE_TOKEN: ${DASHBOARD_WRITE_TOKEN:?defina DASHBOARD_WRITE_TOKEN em deploy/.env}
+    volumes:
+      # MESMO volume nomeado do workspace, montado em /data: ambos enxergam
+      # os mesmos inodes → escritas atômicas (os.replace) cruzam os dois.
+      - squire-state:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    networks:
+      - squire-net
+
+volumes:
+  squire-state:
+  squire-projects:
+
+networks:
+  squire-net:
+    driver: bridge

@@ -51,6 +51,57 @@ Each **round** is one `inner loop + homologation` pair. A task gets up
 to `max_homologation_attempts` rounds (default 5). Each round costs at
 most one Claude call for review + possibly extra escalation calls.
 
+### Infra failures don't consume a round
+
+The review result carries an `error_kind` classifying execution failures
+(not verdicts):
+
+- **`infra`** (transient): Claude returned invalid JSON ("Parse error"),
+  empty stdout, the 180s timeout, or a non-zero exit code. The round gets
+  **one free retry** after 10s — only the second consecutive failure
+  consumes the round. Before this, a CLI hiccup burned one of the 5
+  rounds.
+- **`config`** (won't fix itself): Claude binary missing. The task is
+  blocked immediately with an actionable message instead of burning all
+  5 rounds against the same error.
+
+Every real call (including the retry) is accounted for in cost and rate
+limiting as usual.
+
+### Container build requires a human (DinD deferred)
+
+When the squire runs inside the `workspace` container, Docker is **not**
+available (mounting the host socket would erode containment — see
+[state-and-recovery.md](state-and-recovery.md)). If the inner loop detects
+that the tests/build tried to use Docker (`docker: command not found`,
+`Cannot connect to the Docker daemon`, etc.), the task is **blocked
+immediately** with a critical `requires_container_build` alert, instead of
+burning the remaining attempts. A human builds/verifies the image manually
+(or enables rootless DinD later) and unblocks the task.
+
+### Verdict log (`homologation_log.json`)
+
+Every verdict (approvals, rejections, and `skip_homologation`
+auto-approvals — never infra errors) is persisted in full to
+`projects/<id>/homologation_log.json`, capped at the last 50 entries per
+task. Unlike `Task.rejection_summaries` (300-char summaries used by loop
+detection), `feedback` and `fix_suggestion` are kept complete:
+
+```json
+{"entries": [{
+  "timestamp": "…", "task_id": "task-009", "attempt": 3,
+  "approved": false, "summary": "…",
+  "feedback": "<full text>", "fix_suggestion": "<full steps>",
+  "suggestions": [], "source": "session",
+  "cost_usd": 0.042, "model": "claude-opus-4-7"
+}]}
+```
+
+`source` distinguishes verdicts from the normal loop (`"session"`) from
+the `squire fix` cycle (`"fix"`). This file powers the dashboard's
+blocked-task triage panel and is the context `squire fix` injects into
+the correction.
+
 ## Verdict structure
 
 Claude Code is invoked via `claude --print --output-format json`. It
@@ -90,7 +141,7 @@ the inner loop with violations as feedback — without burning Claude
 budget.
 
 Implementation: `_pre_homologation_checks`
-([`squire.py:504`](../../squire.py)).
+([`squire.py:648`](../../squire.py)).
 
 ### Per-language
 
@@ -154,7 +205,7 @@ something else.
 ### Rejection loop
 
 `Task.rejection_summaries` keeps the last 10 rejection `summary`s.
-`_is_looping` ([`squire.py:252`](../../squire.py)) checks whether the
+`_is_looping` ([`squire.py:374`](../../squire.py)) checks whether the
 last N (default `SQUIRE_LOOP_DETECT=3`) rejections share 4+ significant
 words:
 
@@ -232,7 +283,7 @@ if `task.test_author=claude` (default), Claude writes the tests. See
 
 When rate limit activates between rounds (`can_afford` returns `False`),
 squire **does not sleep**. Instead, it calls `_wait_productively`
-([`squire.py:482`](../../squire.py)) which keeps running the inner
+([`squire.py:626`](../../squire.py)) which keeps running the inner
 loop with the accumulated last-rejection feedback:
 
 ```python

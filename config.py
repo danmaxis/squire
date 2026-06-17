@@ -10,8 +10,8 @@ from pathlib import Path
 
 # ── Paths ──────────────────────────────────────────────────────────
 
-# Raiz do estado persistente (volume Unraid montado na VM)
-STATE_ROOT = Path(os.environ["SQUIRE_STATE_ROOT"])
+# Raiz do estado persistente (disco local da VM; mesmo default do wrapper bash)
+STATE_ROOT = Path(os.getenv("SQUIRE_STATE_ROOT", "/home/ai-debian/squire-state"))
 
 PROJECTS_DIR = STATE_ROOT / "projects"
 ALERTS_FILE = STATE_ROOT / "alerts.json"
@@ -77,6 +77,10 @@ CLAUDE_CODE_WINDOW_MINUTES = int(os.getenv("SQUIRE_CC_WINDOW_MIN", "30"))
 
 # Rodadas máximas por task (cada rodada = inner loop até 10 + 1 homologação)
 MAX_HOMOLOGATION_ATTEMPTS = int(os.getenv("SQUIRE_MAX_HOMOLOG", "5"))
+
+# Timeout (s) do implement_directly — tasks de docs/multiarquivo podem
+# passar fácil dos 5 min de geração
+IMPLEMENT_TIMEOUT_SECONDS = int(os.getenv("SQUIRE_IMPLEMENT_TIMEOUT", "600"))
 
 # Quantas rejeições consecutivas com o mesmo padrão de erro disparam escalação imediata
 LOOP_DETECT_THRESHOLD = int(os.getenv("SQUIRE_LOOP_DETECT", "3"))
@@ -146,6 +150,23 @@ def compute_cost_usd(prompt_tokens: int, completion_tokens: int, model: str) -> 
 
 SESSION_LOCK_TTL_MINUTES = int(os.getenv("SQUIRE_LOCK_TTL", "60"))
 HEARTBEAT_INTERVAL_SECONDS = int(os.getenv("SQUIRE_HEARTBEAT", "300"))  # 5 min
+
+
+# ── Command queue (dashboard → agente host) ────────────────────────
+
+COMMANDS_DIR = STATE_ROOT / "commands"
+COMMANDS_PENDING = COMMANDS_DIR / "pending"
+COMMANDS_RUNNING = COMMANDS_DIR / "running"
+COMMANDS_DONE = COMMANDS_DIR / "done"
+
+# Resultados em done/ mais velhos que isto são apagados pelo agente
+COMMAND_RESULT_TTL_HOURS = int(os.getenv("SQUIRE_COMMAND_TTL_H", "24"))
+# Timeout de execução de um comando (plan_tasks pode demorar minutos)
+COMMAND_TIMEOUT_SECONDS = int(os.getenv("SQUIRE_COMMAND_TIMEOUT", "900"))
+# Intervalo de polling do agente
+AGENT_POLL_SECONDS = float(os.getenv("SQUIRE_AGENT_POLL", "2"))
+# Raiz permitida para repo_path de projetos criados via fila
+AGENT_REPO_ROOT = Path(os.getenv("SQUIRE_AGENT_REPO_ROOT", "/home/ai-debian/projects"))
 
 
 # ── Helpers ────────────────────────────────────────────────────────

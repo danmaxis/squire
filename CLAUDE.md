@@ -16,7 +16,7 @@ para executar projetos de software de forma semi-autônoma:
 
 A proporção-alvo é **30 chamadas locais para cada 1 do Claude Code**.
 
-O primeiro projeto conduzido pelo orquestrador é o **Orchestrator Dashboard**:
+O primeiro projeto conduzido pelo orquestrador é o **Squire Dashboard**:
 uma página Next.js que mostra o estado dos projetos em tempo real, lendo
 arquivos JSON do filesystem. É o projeto se observando nascer.
 
@@ -33,13 +33,15 @@ arquivos JSON do filesystem. É o projeto se observando nascer.
 - É onde o Claude Code opera e onde o squire executa
 - Tem acesso ao filesystem do Unraid via mount
 
-### LLM local — Qwen via LiteLLM
-- **llama.cpp** roda no Zordon com o modelo `Qwen3.5-35B-A3B-Q4_K_M`
-- **LiteLLM** é o API gateway: `http://192.168.50.24:4000/v1`
-- **Model alias**: `journal-synth` (aponta pro Qwen)
-- **API key**: `sk-local` (placeholder, LiteLLM local não exige auth real)
-- **Flags do llama.cpp**: `-fa on -ctk q8_0 -ctv q8_0 -ngl all --reasoning-budget -1 --cache-reuse 256`
-- **Performance**: ~124 tok/s com reasoning_content visível
+### LLM local — Qwen via Ollama
+- **Ollama** roda no Zordon servindo o modelo `journal-synth:latest`
+  (Qwen3.5-35B-A3B, IQ4_NL, `num_ctx 98304`)
+- **Endpoint OpenAI-compatible**: `http://192.168.50.24:11434/v1`
+- **API key**: `ollama` (placeholder, Ollama não exige auth)
+- A configuração local fica em `.env` na raiz do repo (gitignored), que o
+  wrapper `squire` carrega automaticamente
+- Histórico: antes era um gateway LiteLLM na porta 4000 sobre llama.cpp
+  (desativado em 2026-06)
 
 ### Filesystem de estado
 ```
@@ -49,7 +51,7 @@ arquivos JSON do filesystem. É o projeto se observando nascer.
 ├── alerts.json                       ← alertas ativos
 ├── global-stats.json                 ← métricas agregadas
 ├── projects/
-│   ├── orchestrator-dashboard/       ← projeto-piloto
+│   ├── squire-dashboard/             ← projeto-piloto
 │   │   ├── project.json
 │   │   ├── tasks.json
 │   │   ├── history.json
@@ -128,7 +130,7 @@ São duas interações diferentes com o Claude Code:
   5 tentativas, me ajuda a desbloquear." Resultado: instruções que voltam
   pro LLM local como extra_instructions.
 
-## Projeto-piloto: Orchestrator Dashboard
+## Projeto-piloto: Squire Dashboard
 
 ### Stack
 - **Next.js** (App Router) + TypeScript + Tailwind CSS
@@ -149,7 +151,7 @@ diretório local com dados de exemplo. Em produção, monta o volume
 `/mnt/user/data/squire/` (read-only).
 
 ### Tasks do projeto
-Ver `projects/orchestrator-dashboard/tasks.json` para o backlog completo.
+Ver `projects/squire-dashboard/tasks.json` para o backlog completo.
 
 ## Convenções
 
@@ -180,6 +182,11 @@ Mapeamento feature → doc (use este atalho antes de editar):
 | Viking pattern (`docs/viking/`)            | `docs/padrao-viking.md`           | `docs/en/viking-pattern.md`       |
 | Arquitetura / fluxo / componentes          | `docs/arquitetura.md`             | `docs/en/architecture.md`         |
 | Failure mode novo / fix conhecido          | `docs/troubleshooting.md`         | `docs/en/troubleshooting.md`      |
+| Dashboard (UI Next.js em `dashboard/`)     | `dashboard/CLAUDE.md` + `dashboard/README.md` (mesma fonte; sem mirror PT/EN) |
+
+> **Contrato JSON**: ao mudar um schema em `models.py`, atualize o tipo
+> espelhado em `dashboard/src/lib/types.ts` **no mesmo commit** (o drift é
+> coberto pelo teste `dashboard/src/lib/taskDefaults.test.ts`).
 
 Regras:
 
@@ -231,8 +238,13 @@ Regras:
 - Não commitar diretamente na `main` — usar branches + merge
 
 ### Estrutura de diretórios (dashboard)
+
+O dashboard vive **dentro deste repo**, em `dashboard/` (sub-app: tem seu
+próprio `package.json`/`tsconfig`/testes). Briefing próprio em
+[`dashboard/CLAUDE.md`](dashboard/CLAUDE.md).
+
 ```
-orchestrator-dashboard/
+dashboard/
 ├── src/
 │   ├── app/
 │   │   ├── layout.tsx
@@ -266,10 +278,10 @@ orchestrator-dashboard/
 
 ### Squire (Python)
 ```bash
-SQUIRE_STATE_ROOT=/mnt/user/data/squire
-SQUIRE_LITELLM_URL=http://192.168.50.24:4000/v1
-SQUIRE_LITELLM_MODEL=journal-synth
-SQUIRE_LITELLM_KEY=sk-local
+SQUIRE_STATE_ROOT=/home/ai-debian/squire-state
+SQUIRE_LITELLM_URL=http://192.168.50.24:11434/v1
+SQUIRE_LITELLM_MODEL=journal-synth:latest
+SQUIRE_LITELLM_KEY=ollama
 SQUIRE_INNER_MAX_ATTEMPTS=10
 SQUIRE_INNER_TIMEOUT=300
 SQUIRE_CLAUDE_BIN=claude
@@ -282,7 +294,7 @@ SQUIRE_HEARTBEAT=300
 
 ### Dashboard (Next.js)
 ```bash
-ORCHESTRATOR_DATA_PATH=/mnt/user/data/squire
+SQUIRE_DATA_PATH=/home/ai-debian/squire-state
 NEXT_PUBLIC_REFRESH_INTERVAL=30000
 ```
 
@@ -291,27 +303,52 @@ NEXT_PUBLIC_REFRESH_INTERVAL=30000
 ### Squire
 ```bash
 cd /caminho/do/squire
-python squire.py orchestrator-dashboard          # execução normal
-python squire.py orchestrator-dashboard --dry-run # simula sem executar
-python squire.py orchestrator-dashboard --resume  # retoma de crash
+python squire.py squire-dashboard          # execução normal
+python squire.py squire-dashboard --dry-run # simula sem executar
+python squire.py squire-dashboard --resume  # retoma de crash
 ```
 
 ### Dashboard (dev)
 ```bash
-cd /caminho/do/orchestrator-dashboard
+cd /caminho/do/squire/dashboard
 npm install
 npm run dev
 ```
 
 ### Dashboard (produção)
+
+Canônico: a **stack** em `deploy/docker-compose.yml` sobe workspace +
+dashboard juntos (ver "Stack em container" acima). O dashboard roda **na VM
+Ai-Debian** (não no Unraid: o estado fica no disco local da VM).
+
 ```bash
-docker build -t orchestrator-dashboard .
-# Pedir ao Danilo para criar o container no Unraid com:
-#   - Imagem: orchestrator-dashboard
-#   - Porta: 3100:3000
-#   - Volume: /mnt/user/data/squire:/data:ro
-#   - Env: ORCHESTRATOR_DATA_PATH=/data
+cd /home/ai-debian/squire
+docker compose -f deploy/docker-compose.yml up -d --build
+# Porta: 3101:3000 (3100 está ocupada pelo browserless na VM)
+# Estado: volume nomeado squire-state em /data (rw — o dashboard escreve
+#         ack/dismiss de alertas via POST /api/alerts/ack)
+# user: 1000:1000 (arquivos de estado são 0600 ai-debian)
+# URL: http://<ip-da-vm>:3101
 ```
+
+O `dashboard/docker-compose.yml` (standalone, build context `.`) ainda serve
+para rodar só o dashboard em dev, mas é **superseded** pela stack.
+
+### Stack em container (workspace + dashboard)
+
+Alternativa que isola o squire inteiro do host: stack docker-compose de
+dois containers em `deploy/docker-compose.yml` — `workspace` (orquestrador
++ agente + sshd + toolchains + repos, SSH em `:2222`, supervisão s6-overlay
+substituindo o unit systemd) e o `dashboard` (imagem existente, `:3101`).
+Ambos compartilham o volume nomeado `squire-state` em `/data`. Detalhes,
+recuperação de lock após restart e o seam de Docker-in-Docker em
+[docs/estado-e-recuperacao.md](docs/estado-e-recuperacao.md).
+
+> **REGRA CRÍTICA (DinD)**: o `workspace` **não** tem Docker e **nunca**
+> deve montar o socket do host/Unraid — isso daria controle do Docker do
+> host ao container e anularia a contenção. Tasks que precisam buildar
+> imagem são escaladas ao humano (alerta `requires_container_build`). A
+> única evolução futura aceitável é DinD **rootless** dentro do container.
 
 ## Notas para o Claude Code
 

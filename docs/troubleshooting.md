@@ -5,6 +5,12 @@
 Problemas comuns + diagnóstico + fix. Organizado pelo sintoma observável,
 não pela causa raiz.
 
+> **Comece pelo doctor.** Antes de caçar a causa manualmente, rode
+> `squire doctor` — ele verifica endpoint do LLM, binários, locks e
+> sanidade dos projetos de uma vez, e aponta o comando de correção
+> para os problemas que reconhece. `squire doctor --fix` limpa locks
+> comprovadamente mortos.
+
 ## Sumário
 
 - ["Outra sessão está ativa" no startup](#outra-sessão-está-ativa-no-startup)
@@ -101,13 +107,18 @@ Claude estava rejeitando.
   $ squire reset my-app task-007    # descarta código + reseta
   ```
 - Se foi cap USD: aumente o cap na task ou globalmente e desbloqueie.
+- Depois de resolver, reconheça o alerta correspondente:
+  ```bash
+  $ squire alerts list
+  $ squire alerts ack --project my-app --task task-007
+  ```
 
 ## OpenCode escolheu o agente errado
 
 **Sintoma:** task de implementação está usando `debug` agent (ou `terminal`)
 e produzindo output bizarro.
 
-**Diagnóstico:** o `_select_agent` ([`backends.py:338`](../backends.py))
+**Diagnóstico:** o `_select_agent` ([`backends.py:427`](../backends.py))
 casou com uma regra que não deveria. As regras atuais já evitam falsos
 positivos comuns, mas o título pode estar enganando o regex.
 
@@ -226,7 +237,7 @@ O loop continua porque o LLM local não tem como sair sem ajuda.
 visivelmente no `raw_output`.
 
 **Diagnóstico:** O parser de fences (`LiteLLMBackend._apply_changes`,
-[`backends.py:223`](../backends.py)) só reconhece formatos específicos:
+[`backends.py:299`](../backends.py)) só reconhece formatos específicos:
 
 ```text
 ```filepath:src/foo.ts

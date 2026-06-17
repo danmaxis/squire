@@ -5,6 +5,12 @@
 Common problems + diagnosis + fix. Organized by observable symptom, not
 root cause.
 
+> **Start with doctor.** Before hunting the cause manually, run
+> `squire doctor` — it checks the LLM endpoint, binaries, locks, and
+> project sanity in one pass, and points at the fix command for the
+> problems it recognizes. `squire doctor --fix` cleans up provably
+> dead locks.
+
 ## Table of contents
 
 - ["Another session is active" on startup](#another-session-is-active-on-startup)
@@ -102,6 +108,11 @@ why Claude was rejecting.
   $ squire reset my-app task-007    # discards code + resets
   ```
 - If it was USD cap: raise the cap on the task or globally and unblock.
+- After resolving, acknowledge the corresponding alert:
+  ```bash
+  $ squire alerts list
+  $ squire alerts ack --project my-app --task task-007
+  ```
 
 ## OpenCode picked the wrong agent
 
@@ -109,7 +120,7 @@ why Claude was rejecting.
 and producing bizarre output.
 
 **Diagnosis:** `_select_agent`
-([`backends.py:338`](../../backends.py)) matched a rule it shouldn't.
+([`backends.py:427`](../../backends.py)) matched a rule it shouldn't.
 Current rules already avoid common false positives, but the title may
 be tricking the regex.
 
@@ -231,7 +242,7 @@ The loop continues because the local LLM has no way out without help.
 
 **Diagnosis:** the fence parser
 (`LiteLLMBackend._apply_changes`,
-[`backends.py:223`](../../backends.py)) only recognizes specific formats:
+[`backends.py:299`](../../backends.py)) only recognizes specific formats:
 
 ```text
 ```filepath:src/foo.ts

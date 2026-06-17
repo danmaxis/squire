@@ -7,6 +7,10 @@ set -euo pipefail
 # Resolve o diretório real do script (segue symlinks)
 SQUIRE_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 SQUIRE_VENV="$SQUIRE_DIR/.venv/bin/python"
+
+# Carrega .env local (usa exports guardados: env já exportado tem precedência)
+[[ -f "$SQUIRE_DIR/.env" ]] && source "$SQUIRE_DIR/.env"
+
 SQUIRE_STATE_ROOT="${SQUIRE_STATE_ROOT:-/home/ai-debian/squire-state}"
 SQUIRE_LOG="/tmp/squire.log"
 LOCK_FILE="$SQUIRE_STATE_ROOT/session.lock"
@@ -363,18 +367,21 @@ PYEOF
 cmd_new() {
     local project="${1:-}"; shift || true
     if [[ -z "$project" ]] || [[ "$project" == --* ]]; then
-        error "Uso: squire new <project-id> [--repo <path>] [--name <nome>] [--stack <csv>] [--backend aider|litellm]"
+        error "Uso: squire new <project-id> [--repo <path>] [--name <nome>] [--stack <csv>] [--backend litellm|opencode|crush] [--yes] [--git-init]"
         exit 1
     fi
 
     local repo_path="" name="" stack="typescript" backend="opencode"
+    local assume_yes=false git_init=false
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --repo)    repo_path="$2"; shift 2 ;;
-            --name)    name="$2";      shift 2 ;;
-            --stack)   stack="$2";     shift 2 ;;
-            --backend) backend="$2";   shift 2 ;;
+            --repo)     repo_path="$2"; shift 2 ;;
+            --name)     name="$2";      shift 2 ;;
+            --stack)    stack="$2";     shift 2 ;;
+            --backend)  backend="$2";   shift 2 ;;
+            --yes)      assume_yes=true; shift ;;
+            --git-init) git_init=true;   shift ;;
             *) error "Opção desconhecida: $1"; exit 1 ;;
         esac
     done
@@ -419,43 +426,65 @@ data = {
 open(path, "w").write(json.dumps(data, ensure_ascii=False, indent=2))
 PYEOF
 
-    # tasks.json — template comentado
-    cat > "$proj_dir/tasks.json" << 'TASKEOF'
-{
-  "tasks": [
-    {
-      "id": "task-001",
-      "title": "Setup inicial",
-      "description": "Descreva aqui o que deve ser feito. Seja específico: quais arquivos criar, qual comportamento esperado, quais testes devem passar.",
-      "status": "pending",
-      "max_attempts": 10,
-      "max_homologation_attempts": 5,
-      "skip_homologation": false,
-      "subtasks": []
-    }
-  ]
-}
-TASKEOF
+    # tasks.json — gerado pelo modelo Pydantic real (shape completo, nunca
+    # deriva do contrato que o dashboard espera)
+    "$SQUIRE_VENV" - "$SQUIRE_DIR" "$proj_dir/tasks.json" << 'PYEOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+from models import Task, TaskList
+task = Task(
+    id="task-001",
+    title="Setup inicial",
+    description=(
+        "Descreva aqui o que deve ser feito. Seja específico: quais arquivos "
+        "criar, qual comportamento esperado, quais testes devem passar."
+    ),
+)
+open(sys.argv[2], "w").write(TaskList(tasks=[task]).model_dump_json(indent=2))
+PYEOF
 
     local editor="${EDITOR:-nano}"
     ok "Projeto '$project' criado em $proj_dir"
     echo ""
 
+    # Provisionar o repositório git (--git-init)
+    if $git_init; then
+        mkdir -p "$repo_path"
+        if [[ ! -d "$repo_path/.git" ]]; then
+            if git -C "$repo_path" init -q && \
+               git -C "$repo_path" -c user.name="squire" -c user.email="squire@local" \
+                   commit --allow-empty -q -m "chore: repositório inicial (squire new)"; then
+                ok "Repositório git inicializado em $repo_path"
+            else
+                warn "Falha ao inicializar git em $repo_path — inicialize manualmente"
+            fi
+        else
+            ok "Repositório git já existe em $repo_path"
+        fi
+        echo ""
+    fi
+
     # Perguntar se deseja usar 'squire tasks plan' para criar as tasks iniciais
-    echo -e -n "  Deseja planejar as tasks agora com Claude? [y/N] "
-    local resposta
-    read -r resposta
-    if [[ "${resposta,,}" == "y" ]]; then
-        echo ""
-        SQUIRE_STATE_ROOT="$SQUIRE_STATE_ROOT" \
-            "$SQUIRE_VENV" -u "$SQUIRE_DIR/tasks_cli.py" plan "$project"
-        echo ""
+    if ! $assume_yes; then
+        echo -e -n "  Deseja planejar as tasks agora com Claude? [y/N] "
+        local resposta
+        read -r resposta
+        if [[ "${resposta,,}" == "y" ]]; then
+            echo ""
+            SQUIRE_STATE_ROOT="$SQUIRE_STATE_ROOT" \
+                "$SQUIRE_VENV" -u "$SQUIRE_DIR/tasks_cli.py" plan "$project"
+            echo ""
+        fi
     fi
 
     echo -e "  ${BOLD}Próximos passos:${RESET}"
     echo -e "  1. Edite as tasks:   ${CYAN}$editor $proj_dir/tasks.json${RESET}"
-    echo -e "  2. Crie o repo:      ${CYAN}mkdir -p $repo_path && cd $repo_path && git init${RESET}"
-    echo -e "  3. Execute:          ${CYAN}squire run $project${RESET}"
+    if $git_init; then
+        echo -e "  2. Execute:          ${CYAN}squire run $project${RESET}"
+    else
+        echo -e "  2. Crie o repo:      ${CYAN}mkdir -p $repo_path && cd $repo_path && git init${RESET}"
+        echo -e "  3. Execute:          ${CYAN}squire run $project${RESET}"
+    fi
     echo ""
     echo -e "  Ajuste a descrição do projeto:"
     echo -e "  ${CYAN}$editor $proj_dir/project.json${RESET}"
@@ -608,9 +637,10 @@ cmd_tasks_help() {
     echo -e "  ${CYAN}squire tasks list${RESET}   <projeto>              Lista tasks com status visual"
     echo -e "  ${CYAN}squire tasks add${RESET}    <projeto> --title \"...\" [--desc \"...\"] [--id \"...\"] [--skip-homolog] [--max N] [--max-homolog N]"
     echo -e "  ${CYAN}squire tasks edit${RESET}   <projeto> [<id>]       Edita no \$EDITOR (sem id = tasks.json inteiro)"
-    echo -e "  ${CYAN}squire tasks rm${RESET}     <projeto> <id>         Remove task por ID"
-    echo -e "  ${CYAN}squire tasks split${RESET}  <projeto> <id>         Claude subdivide task em subtasks"
-    echo -e "  ${CYAN}squire tasks plan${RESET}   <projeto> [--desc \"...\"]  Claude planeja tasks (rascunho + refinamento interativo)"
+    echo -e "  ${CYAN}squire tasks rm${RESET}     <projeto> <id> [--yes]  Remove task por ID (--yes pula confirmação)"
+    echo -e "  ${CYAN}squire tasks split${RESET}  <projeto> <id> [--yes]  Claude subdivide task (--yes aceita 1ª proposta)"
+    echo -e "  ${CYAN}squire tasks plan${RESET}   <projeto> [--desc \"...\"] [--mode append|replace] [--no-refine] [--yes]"
+    echo -e "                                       Claude planeja tasks (--yes = sem prompts)"
     echo ""
     echo -e "  Exemplos:"
     echo -e "    squire tasks pilotinho"
@@ -644,6 +674,26 @@ cmd_tasks() {
     esac
 }
 
+cmd_alerts() {
+    SQUIRE_STATE_ROOT="$SQUIRE_STATE_ROOT" \
+        "$SQUIRE_VENV" -u "$SQUIRE_DIR/alerts_cli.py" "$@"
+}
+
+cmd_doctor() {
+    SQUIRE_STATE_ROOT="$SQUIRE_STATE_ROOT" \
+        "$SQUIRE_VENV" -u "$SQUIRE_DIR/doctor.py" "$@"
+}
+
+cmd_agent() {
+    SQUIRE_STATE_ROOT="$SQUIRE_STATE_ROOT" \
+        "$SQUIRE_VENV" -u "$SQUIRE_DIR/agent_cli.py" "$@"
+}
+
+cmd_fix() {
+    SQUIRE_STATE_ROOT="$SQUIRE_STATE_ROOT" \
+        "$SQUIRE_VENV" -u "$SQUIRE_DIR/fix_cli.py" "$@"
+}
+
 cmd_help() {
     bold "squire — CLI"
     echo ""
@@ -658,6 +708,7 @@ cmd_help() {
     echo -e "  ${CYAN}squire status${RESET}              Mostra estado de sessão/projetos/rate-limit"
     echo -e "  ${CYAN}squire kill${RESET}                Encerra o processo da sessão ativa e remove o lock"
     echo -e "  ${CYAN}squire unlock${RESET}              Remove o session.lock residual deixado por crash (não mata processo)"
+    echo -e "  ${CYAN}squire fix${RESET} <projeto> <task-id>   Claude corrige task bloqueada (implementa + testa + 1 homologação)"
     echo -e "  ${CYAN}squire unblock${RESET} <projeto> [id...]"
     echo -e "                           Retoma tasks com status 'blocked' → pending (mantém o código no repo)"
     echo -e "  ${CYAN}squire reset${RESET}   <projeto> [id...]"
@@ -672,7 +723,12 @@ cmd_help() {
     echo -e "  ${CYAN}squire rm${RESET} <projeto>              Remove projeto (confirmação dupla: nome + palavra aleatória)"
     echo -e "  ${CYAN}squire projects${RESET}            Lista projetos disponíveis"
     echo -e "  ${CYAN}squire new${RESET} <projeto>              Cria projeto novo"
-    echo -e "  ${CYAN}squire new${RESET} <projeto> --repo <path> --name <nome> --stack <csv> --backend <aider|litellm>"
+    echo -e "  ${CYAN}squire new${RESET} <projeto> [--repo <path>] [--name <nome>] [--stack <csv>] [--backend <litellm|opencode|crush>] [--yes] [--git-init]"
+    echo -e "  ${CYAN}squire doctor${RESET} [--fix]     Health check do ambiente (--fix limpa locks mortos)"
+    echo -e "  ${CYAN}squire agent${RESET} [--once]     Executa comandos enfileirados pelo dashboard"
+    echo -e "  ${CYAN}squire alerts${RESET}              Lista alertas pendentes"
+    echo -e "  ${CYAN}squire alerts ack${RESET} <n>|--all [--project <id>] [--task <id>]  Reconhece alertas"
+    echo -e "  ${CYAN}squire alerts rm${RESET}  <n>|--acked|--all   Remove alertas"
     echo -e "  ${CYAN}squire budget${RESET}              Mostra gasto USD hoje + budget configurado"
     echo -e "  ${CYAN}squire budget set${RESET} --daily X --per-task Y    Define limites USD"
     echo -e "  ${CYAN}squire budget reset${RESET}        Zera contadores diários"
@@ -681,8 +737,8 @@ cmd_help() {
     echo ""
     echo -e "  Exemplos:"
     echo -e "    squire new meu-app --repo /home/ai-debian/projects/meu-app --stack typescript,nextjs"
-    echo -e "    squire run orchestrator-dashboard"
-    echo -e "    squire bg  orchestrator-dashboard"
+    echo -e "    squire run squire-dashboard"
+    echo -e "    squire bg  squire-dashboard"
     echo -e "    squire log"
     echo -e "    squire status"
     echo -e "    squire kill"
@@ -706,6 +762,10 @@ case "$CMD" in
     projects) cmd_projects ;;
     new)      cmd_new "$@" ;;
     tasks)    cmd_tasks "$@" ;;
+    alerts)   cmd_alerts "$@" ;;
+    doctor)   cmd_doctor "$@" ;;
+    agent)    cmd_agent "$@" ;;
+    fix)      cmd_fix "$@" ;;
     budget)   cmd_budget "$@" ;;
     help|-h|--help) cmd_help ;;
     *)

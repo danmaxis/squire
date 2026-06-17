@@ -41,6 +41,12 @@ def _extract_usage_from_claude_json(data: dict) -> Optional[TokenUsage]:
     ct = int(usage.get("output_tokens", 0) or 0)
     cached = int(usage.get("cache_read_input_tokens", 0) or 0)
     model = data.get("model", "") or ""
+    # Versões recentes do claude --print não trazem "model" no topo, só as
+    # chaves de "modelUsage" — sem isto o cost_by_model fica vazio para sempre
+    if not model:
+        model_usage = data.get("modelUsage")
+        if isinstance(model_usage, dict) and model_usage:
+            model = next(iter(model_usage))
     cost = float(data.get("total_cost_usd", 0.0) or 0.0)
     # Fallback: se Claude não reportou custo mas reportou tokens, computa da tabela
     if cost == 0.0 and (pt or ct) and model:
@@ -55,6 +61,25 @@ def _extract_usage_from_claude_json(data: dict) -> Optional[TokenUsage]:
     )
 
 
+def _extract_json_object(text: str) -> Optional[dict]:
+    """Extrai o primeiro objeto JSON válido embutido em texto livre.
+
+    Tenta raw_decode a partir de cada '{' — cobre respostas em que o
+    modelo envolve o JSON do veredito em prosa.
+    """
+    decoder = json.JSONDecoder()
+    idx = text.find("{")
+    while idx != -1:
+        try:
+            obj, _ = decoder.raw_decode(text, idx)
+            if isinstance(obj, dict):
+                return obj
+        except json.JSONDecodeError:
+            pass
+        idx = text.find("{", idx + 1)
+    return None
+
+
 @dataclass
 class HomologationResult:
     """Resultado da homologação pelo Claude Code."""
@@ -64,6 +89,9 @@ class HomologationResult:
     fix_suggestion: str = ""     # passos concretos para o agente local corrigir (rejeição)
     suggestions: list[str] = None  # melhorias sugeridas (mesmo se aprovado)
     error: str | None = None     # erro de execução (não de review)
+    # Classificação do erro: "infra" = transiente (parse/timeout/stdout vazio —
+    # vale retry), "config" = não se resolve sozinho (binário ausente), None = sem erro
+    error_kind: str | None = None
     usage: Optional[TokenUsage] = None  # tokens + custo reportados pelo Claude Code
 
     def __post_init__(self):
@@ -150,8 +178,9 @@ class Homologator:
 
             if result.returncode != 0:
                 return HomologationResult(
-                    error=f"Claude Code exited with code {result.returncode}: "
+                    error=f"Claude Code saiu com código {result.returncode}: "
                           f"{result.stderr[:500]}",
+                    error_kind="infra",
                 )
 
             if not result.stdout.strip():
@@ -159,6 +188,7 @@ class Homologator:
                 stderr_hint = result.stderr[:200] if result.stderr else "sem stderr"
                 return HomologationResult(
                     error=f"Claude Code retornou stdout vazio (stderr: {stderr_hint})",
+                    error_kind="infra",
                 )
 
             self._vlog("←", result.stdout[:800])
@@ -166,11 +196,16 @@ class Homologator:
 
         except subprocess.TimeoutExpired:
             return HomologationResult(
-                error="Claude Code review timed out (180s)",
+                error="Claude Code excedeu o timeout de 180s no review",
+                error_kind="infra",
             )
         except FileNotFoundError:
             return HomologationResult(
-                error=f"Claude Code binary not found: {self.claude_bin}",
+                error=(
+                    f"Binário do Claude Code não encontrado: '{self.claude_bin}' "
+                    f"— verifique SQUIRE_CLAUDE_BIN"
+                ),
+                error_kind="config",
             )
 
     def _build_review_prompt(
@@ -333,12 +368,21 @@ Responda APENAS com JSON válido, sem markdown:
                 if clean.startswith("```"):
                     clean = clean.split("\n", 1)[1]
                     clean = clean.rsplit("```", 1)[0]
-                review = json.loads(clean)
+                try:
+                    review = json.loads(clean)
+                except json.JSONDecodeError:
+                    # Claude às vezes envolve o JSON em prosa ("Aqui está a
+                    # análise: {...}") — extrai o primeiro objeto JSON válido
+                    # em vez de queimar a rodada com Parse error.
+                    review = _extract_json_object(clean)
+                    if review is None:
+                        raise
             elif isinstance(content, dict):
                 review = content
             else:
                 return HomologationResult(
                     error=f"Unexpected response format: {type(content)}",
+                    error_kind="infra",
                     usage=usage,
                 )
 
@@ -359,6 +403,7 @@ Responda APENAS com JSON válido, sem markdown:
                 approved=False,
                 feedback=f"Não foi possível parsear a resposta: {stdout[:500]}",
                 error=f"Parse error: {e}",
+                error_kind="infra",
                 usage=usage,
             )
 
@@ -426,7 +471,9 @@ Implemente a task completa. Retorne os arquivos no formato:
 // conteúdo completo do arquivo
 ```
 
-Cada arquivo deve ser completo e funcional. Não use TODOs nem esqueletos."""
+Cada arquivo deve ser completo e funcional. Não use TODOs nem esqueletos.
+MESMO que a correção seja pequena (uma linha, um campo), retorne o arquivo
+INTEIRO modificado nesse formato — respostas em prosa ou diff são descartadas."""
 
         self._vlog("→", prompt)
         try:
@@ -436,15 +483,32 @@ Cada arquivo deve ser completo e funcional. Não use TODOs nem esqueletos."""
                 cwd=str(self.project_path),
                 capture_output=True,
                 text=True,
-                timeout=300,  # 5 min — pode precisar escrever vários arquivos
+                timeout=config.IMPLEMENT_TIMEOUT_SECONDS,
             )
             if result.returncode != 0 or not result.stdout.strip():
+                print(
+                    f"⚠ implement_directly: claude saiu com código "
+                    f"{result.returncode} (stderr: {result.stderr[:200] or 'vazio'})"
+                )
                 return [], None
             self._vlog("←", result.stdout)
             text, usage = _unwrap_claude_json(result.stdout)
             files = parse_and_apply_files(text, self.project_path)
+            if not files:
+                preview = (text or "")[:300].replace("\n", " ")
+                print(f"⚠ implement_directly: resposta sem blocos filepath — início: {preview!r}")
             return files, usage
-        except (subprocess.TimeoutExpired, FileNotFoundError):
+        except subprocess.TimeoutExpired:
+            print(
+                f"⚠ implement_directly: claude excedeu o timeout de "
+                f"{config.IMPLEMENT_TIMEOUT_SECONDS}s (SQUIRE_IMPLEMENT_TIMEOUT)"
+            )
+            return [], None
+        except FileNotFoundError:
+            print(
+                f"⚠ implement_directly: binário '{self.claude_bin}' não "
+                f"encontrado no PATH — verifique SQUIRE_CLAUDE_BIN/PATH"
+            )
             return [], None
 
     def unblock(
