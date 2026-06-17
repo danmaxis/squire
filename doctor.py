@@ -71,6 +71,17 @@ def check_state_root() -> list[CheckResult]:
     results = [CheckResult(OK, "state root", str(root))]
     if not config.PROJECTS_DIR.exists():
         results.append(CheckResult(WARN, "projects/", "diretório ausente — 'squire new' cria"))
+    # Em container: o dashboard (segundo escritor, uid 1000) depende de o
+    # estado ser escrito com uid 1000 (arquivos 0600). Se o orquestrador
+    # roda com outro uid, novos arquivos podem não ser legíveis pelo dashboard.
+    if Path("/.dockerenv").exists() and hasattr(os, "geteuid"):
+        euid = os.geteuid()
+        if euid != 1000:
+            results.append(CheckResult(
+                WARN, "uid do container",
+                f"orquestrador roda como uid {euid} (esperado 1000) — "
+                f"o dashboard pode não ler o estado que ele escreve",
+            ))
     return results
 
 

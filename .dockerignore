@@ -1,0 +1,18 @@
+# Não levar para o build context / camada da imagem:
+.venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+.git/
+.pytest_cache/
+.ruff_cache/
+node_modules/
+# .env contém segredo — NÃO embutir na imagem (inclui deploy/.env com o
+# DASHBOARD_WRITE_TOKEN). Os valores vão via `environment:` do compose.
+.env
+**/.env
+# deploy/ é infra de host (compose); não precisa estar na imagem.
+deploy/
+# Estado local de testes e planos não pertencem à imagem.
+*.bak
+.claude/

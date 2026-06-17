@@ -68,6 +68,17 @@ The review result carries an `error_kind` classifying execution failures
 Every real call (including the retry) is accounted for in cost and rate
 limiting as usual.
 
+### Container build requires a human (DinD deferred)
+
+When the squire runs inside the `workspace` container, Docker is **not**
+available (mounting the host socket would erode containment — see
+[state-and-recovery.md](state-and-recovery.md)). If the inner loop detects
+that the tests/build tried to use Docker (`docker: command not found`,
+`Cannot connect to the Docker daemon`, etc.), the task is **blocked
+immediately** with a critical `requires_container_build` alert, instead of
+burning the remaining attempts. A human builds/verifies the image manually
+(or enables rootless DinD later) and unblocks the task.
+
 ### Verdict log (`homologation_log.json`)
 
 Every verdict (approvals, rejections, and `skip_homologation`

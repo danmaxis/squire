@@ -68,6 +68,17 @@ execução (não de veredito):
 Cada chamada real (incluindo o retry) é contabilizada em custo e rate
 limit normalmente.
 
+### Build de container exige humano (DinD adiado)
+
+Quando o squire roda no container `workspace`, o Docker **não** está
+disponível (montar o socket do host erodiria a contenção — ver
+[estado-e-recuperacao.md](estado-e-recuperacao.md)). Se o inner loop
+detecta que os testes/build tentaram usar Docker (`docker: command not
+found`, `Cannot connect to the Docker daemon`, etc.), a task é **bloqueada
+imediatamente** com um alerta crítico `requires_container_build`, em vez de
+queimar as tentativas restantes. O humano builda/verifica a imagem
+manualmente (ou habilita DinD rootless no futuro) e desbloqueia a task.
+
 ### Log de vereditos (`homologation_log.json`)
 
 Todo veredito (aprovações, rejeições e auto-aprovações de

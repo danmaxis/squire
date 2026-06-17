@@ -1,0 +1,3 @@
+#!/command/with-contenv bash
+# sshd em foreground (-D) com log no stderr (-e), supervisionado pelo s6.
+exec /usr/sbin/sshd -D -e

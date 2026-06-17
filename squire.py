@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import random
+import re
 import shutil
 import subprocess
 import sys
@@ -62,6 +63,23 @@ def log(msg: str, level: str = "info") -> None:
     print(f"[{ts}] {prefix.get(level, '→')} {msg}")
 
 
+# Sinais de que uma task precisa de Docker, que NÃO está disponível no
+# container workspace (Docker-in-Docker é adiado atrás de escalação ao
+# humano — ver docs/estado-e-recuperacao.md). Quando o inner loop esbarra
+# nisso, bloqueamos a task com um alerta em vez de queimar tentativas.
+_CONTAINER_BUILD_SIGNALS = re.compile(
+    r"cannot connect to the docker daemon"
+    r"|\bdocker(?:[- ]compose)?\b[^\n]*not found"
+    r"|docker\.sock",
+    re.IGNORECASE,
+)
+
+
+def _needs_container_build(*texts: str | None) -> bool:
+    """True se algum texto indica tentativa de usar Docker (indisponível)."""
+    return any(t and _CONTAINER_BUILD_SIGNALS.search(t) for t in texts)
+
+
 class Squire:
     """Loop principal do squire."""
 
@@ -88,6 +106,10 @@ class Squire:
         self.homologator = Homologator(self.project.repo_path, verbose=verbose)
         self.escalation = TechnicalEscalation(self.project.repo_path, verbose=verbose)
         self.rate_limiter = RateLimiter(self.cp.rate_limit)
+
+        # Setado quando o inner loop detecta necessidade de build de container
+        # (Docker indisponível) → bloqueia a task e escala ao humano.
+        self._container_escalation = False
 
         # Stats
         self.stats = ckpt.load_stats()
@@ -547,6 +569,30 @@ class Squire:
             # Checkpoint após cada iteração
             self._save_state()
 
+            # ── Seam Docker-in-Docker: build de container exige humano ──
+            # Docker não está disponível no workspace (montar o socket do host
+            # erodiria a contenção). Se o backend/testes tentaram usar Docker,
+            # bloqueia a task e escala em vez de queimar as tentativas restantes.
+            if not result.success and _needs_container_build(result.test_output, result.error):
+                self._container_escalation = True
+                task.status = TaskStatus.blocked
+                ckpt.add_alert(
+                    self.project_id,
+                    "requires_container_build",
+                    f"Task '{task.title}' precisa de build/execução de container "
+                    f"(Docker). Docker-in-Docker está adiado — um humano deve "
+                    f"buildar/verificar a imagem manualmente.",
+                    task_id=task.id,
+                    severity=AlertSeverity.critical,
+                )
+                self._record_event(
+                    EventType.escalation_created, task.id, task.attempts,
+                    "Build de container necessário — escalado ao humano (DinD adiado)",
+                )
+                log("Build de container necessário — task bloqueada e escalada", "error")
+                self._save_state()
+                return False
+
             if result.error:
                 log(f"Erro fatal no inner loop: {result.error}", "error")
                 self._record_event(
@@ -861,6 +907,7 @@ class Squire:
         """
         last_feedback = ""  # feedback acumulado da última rejeição
         gate_failures = 0   # violações mecânicas consecutivas sem CC call
+        self._container_escalation = False  # reset por-task
 
         # ── Fase RED: escrever testes antes da implementação ──
         test_hashes: dict[str, str] | None = None
@@ -896,6 +943,10 @@ class Squire:
             task.attempts = 0
             self._run_inner_loop(task, homologation_feedback=last_feedback, test_hashes=test_hashes)
             # Resultado dos testes é ignorado: sempre avança para homologação
+            # Exceto: se o inner loop escalou por build de container, a task já
+            # foi bloqueada e alertada — encerra as rodadas imediatamente.
+            if self._container_escalation:
+                return False
 
             # Pausa para garantir que o Qwen terminou antes do claude --print
             time.sleep(5)
@@ -1151,6 +1202,10 @@ class Squire:
                     except Exception as _pe:
                         log(f"Falha ao atualizar progress.txt: {_pe}", "warn")
                     self._log_remaining_tasks()
+                elif self._container_escalation:
+                    # Task já foi bloqueada + alertada (requires_container_build)
+                    # no seam do inner loop; não adicionar o alerta genérico.
+                    log(f"Task escalada para build de container (humano): {task.title}", "warn")
                 else:
                     task.status = TaskStatus.blocked
                     ckpt.add_alert(

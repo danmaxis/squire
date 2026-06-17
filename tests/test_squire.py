@@ -1409,3 +1409,95 @@ class TestRedPhase:
             orch._run_red_phase(task)
 
         mock_sub.assert_not_called()
+
+
+# ── TestContainerBuildEscalation (seam Docker-in-Docker) ─────────────
+
+def _inner_result(*, success=False, test_output="", error=None):
+    r = MagicMock()
+    r.success = success
+    r.test_output = test_output
+    r.error = error
+    r.context_summary = None
+    r.usage = None
+    r.files_touched = ["src/app.py"]  # tem progresso → não força escalação por no-progress
+    r.tests_failing = 1
+    r.tests_passing = 0
+    r.tests_skipped = False
+    return r
+
+
+class TestContainerBuildEscalation:
+    def test_detector_reconhece_sinais_de_docker(self):
+        from squire import _needs_container_build
+
+        assert _needs_container_build("bash: docker: command not found")
+        assert _needs_container_build("docker compose: command not found")
+        assert _needs_container_build(
+            "Cannot connect to the Docker daemon at unix:///var/run/docker.sock"
+        )
+        assert _needs_container_build(None, "/var/run/docker.sock missing")
+
+    def test_detector_ignora_saida_limpa(self):
+        from squire import _needs_container_build
+
+        assert not _needs_container_build("5 passed, 0 failed")
+        assert not _needs_container_build("", None)
+        # "dockerfile" mencionado sem erro de execução não dispara
+        assert not _needs_container_build("created Dockerfile successfully")
+
+    def test_inner_loop_bloqueia_e_escala_em_build_de_container(self):
+        """Testes falhando com 'docker: not found' → task blocked + alerta crítico."""
+        orch = make_squire()
+        task = make_task()
+        orch._account_call = MagicMock()
+        orch._task_budget_exceeded = MagicMock(return_value=False)
+        orch.inner_loop.execute.return_value = _inner_result(
+            success=False, test_output="bash: docker: command not found\nexit 127",
+        )
+
+        with patch("squire.ckpt.add_alert") as mock_alert:
+            passed = orch._run_inner_loop(task)
+
+        assert passed is False
+        assert orch._container_escalation is True
+        assert task.status == TaskStatus.blocked
+        mock_alert.assert_called_once()
+        # tipo do alerta é o reconhecido pelo dashboard
+        assert mock_alert.call_args.args[1] == "requires_container_build"
+        # não queimou todas as tentativas
+        assert task.attempts == 1
+
+    def test_inner_loop_nao_escala_em_falha_normal(self):
+        """Falha de teste comum não dispara o seam de container."""
+        orch = make_squire()
+        task = make_task(max_attempts=1)
+        orch._account_call = MagicMock()
+        orch._task_budget_exceeded = MagicMock(return_value=False)
+        orch.inner_loop.execute.return_value = _inner_result(
+            success=False, test_output="AssertionError: expected 2 got 3",
+        )
+
+        with patch("squire.ckpt.add_alert") as mock_alert:
+            orch._run_inner_loop(task)
+
+        assert orch._container_escalation is False
+        for c in mock_alert.call_args_list:
+            assert c.args[1] != "requires_container_build"
+
+    def test_run_homologation_encerra_rodadas_apos_escalacao(self):
+        """Se o inner loop escalou, _run_homologation retorna False sem homologar."""
+        orch = make_squire()
+        task = make_task(tdd=False)
+
+        def _escalate(*a, **k):
+            orch._container_escalation = True
+            return False
+
+        orch._run_inner_loop = MagicMock(side_effect=_escalate)
+
+        with patch("squire.time"):
+            approved = orch._run_homologation(task)
+
+        assert approved is False
+        orch.homologator.review.assert_not_called()

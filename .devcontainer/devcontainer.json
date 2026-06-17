@@ -1,0 +1,20 @@
+{
+  // Camada de conveniência: anexar um editor (VS Code / Claude Code Remote)
+  // ao container workspace pela LAN. A stack continua headless — esta config
+  // NÃO é dona do ciclo de vida (shutdownAction: none), apenas se conecta ao
+  // mesmo docker-compose que roda como serviço.
+  "name": "squire-workspace",
+  "dockerComposeFile": "../deploy/docker-compose.yml",
+  "service": "workspace",
+  "workspaceFolder": "/home/ai-debian/projects",
+  "remoteUser": "ai-debian",
+  // Fechar o editor nunca derruba o orquestrador/agente/dashboard.
+  "shutdownAction": "none",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python"
+      ]
+    }
+  }
+}

@@ -271,6 +271,39 @@ squire kill       # SIGTERM no processo + remove lock
 squire unlock     # só remove o lock (não mata processo)
 ```
 
+## Deployment em container (stack workspace + dashboard)
+
+O squire pode rodar como uma stack docker-compose de **dois containers**
+(`deploy/docker-compose.yml`), isolando o código gerado pelo LLM do host:
+
+- **`workspace`** — orquestrador + agente da fila + sshd + toolchains +
+  repos dos projetos. Supervisionado por **s6-overlay** (PID 1), que faz
+  reaping de zumbis e substitui o unit `systemd --user squire-agent`.
+  Exposto por SSH em `:2222`, com `mem_limit`/`memswap_limit` rígidos
+  (proíbe usar swap do host).
+- **`dashboard`** — imagem Next.js existente, inalterada, em `:3101`.
+
+Ambos montam o **mesmo volume nomeado `squire-state` em `/data`** — é
+obrigatório que seja um único filesystem, pois as escritas usam
+`os.replace` (atômico só dentro do mesmo fs; ver [Escrita atômica](#escrita-atômica)).
+
+### Lock residual sobrevive a restart do container
+
+O `session.lock` guarda um PID; ao recriar/reiniciar o container, o PID
+antigo deixa de existir. Isso é **tratado automaticamente**: o TTL (60min)
+expira o lock e `squire doctor --fix` / o `check_lock` do wrapper removem o
+lock quando o pid registrado está morto (`kill -0` falha). O `llm.lock`
+(flock) é liberado pelo kernel na morte do processo — nunca fica residual.
+
+### Docker-in-Docker é proibido por padrão
+
+O Docker **não** está instalado no `workspace` e o socket do host/Unraid
+**nunca** é montado (montá-lo daria controle do Docker do host ao container,
+anulando a contenção). Tasks que precisam buildar/rodar uma imagem são
+escaladas ao humano via alerta `requires_container_build` (ver
+[homologacao.md](homologacao.md)). A única evolução futura aceitável é DinD
+**rootless** dentro do `workspace`, se um projeto bloquear nisso.
+
 ## Auto-snapshot e auto-commit
 
 Para que o working tree do projeto seja sempre recuperável, o squire faz

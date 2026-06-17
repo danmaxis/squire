@@ -321,6 +321,22 @@ docker compose up -d --build
 # URL: http://<ip-da-vm>:3101
 ```
 
+### Stack em container (workspace + dashboard)
+
+Alternativa que isola o squire inteiro do host: stack docker-compose de
+dois containers em `deploy/docker-compose.yml` — `workspace` (orquestrador
++ agente + sshd + toolchains + repos, SSH em `:2222`, supervisão s6-overlay
+substituindo o unit systemd) e o `dashboard` (imagem existente, `:3101`).
+Ambos compartilham o volume nomeado `squire-state` em `/data`. Detalhes,
+recuperação de lock após restart e o seam de Docker-in-Docker em
+[docs/estado-e-recuperacao.md](docs/estado-e-recuperacao.md).
+
+> **REGRA CRÍTICA (DinD)**: o `workspace` **não** tem Docker e **nunca**
+> deve montar o socket do host/Unraid — isso daria controle do Docker do
+> host ao container e anularia a contenção. Tasks que precisam buildar
+> imagem são escaladas ao humano (alerta `requires_container_build`). A
+> única evolução futura aceitável é DinD **rootless** dentro do container.
+
 ## Notas para o Claude Code
 
 1. **Você é o tech lead**. Planeja, revisa, e decide. O trabalho braçal de
