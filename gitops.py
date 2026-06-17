@@ -23,9 +23,11 @@ def commit_all(repo_path: str, message: str) -> str:
         if not status.stdout.strip():
             return "nothing"
 
-        subprocess.run(
-            ["git", "add", "-A"], cwd=repo_path, capture_output=True, timeout=15
+        add = subprocess.run(
+            ["git", "add", "-A"], cwd=repo_path, capture_output=True, text=True, timeout=15
         )
+        if add.returncode != 0:
+            return f"failed: git add: {add.stderr.strip()[:120] or 'erro desconhecido'}"
         commit = subprocess.run(
             ["git", "commit", "-m", message],
             cwd=repo_path, capture_output=True, text=True, timeout=15,
