@@ -73,7 +73,7 @@ export function useCommandPoll(commandId: string | null): CommandPollState {
       }
     };
 
-    let timer: ReturnType<typeof setTimeout>;
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const schedule = () => {
       timer = setTimeout(tick, POLL_MS);
     };
@@ -81,7 +81,7 @@ export function useCommandPoll(commandId: string | null): CommandPollState {
 
     return () => {
       cancelled = true;
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
     };
   }, [commandId]);
 

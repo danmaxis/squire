@@ -33,4 +33,7 @@ fi
         esac
     done
 } > /etc/squire.env
-chmod 644 /etc/squire.env
+# Pode conter credenciais (ANTHROPIC_API_KEY/OPENAI_API_KEY). Restringe a
+# leitura ao ai-debian (único usuário SSH e quem fonta no profile.d).
+chown ai-debian:ai-debian /etc/squire.env
+chmod 600 /etc/squire.env
