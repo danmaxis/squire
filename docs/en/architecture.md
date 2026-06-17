@@ -91,9 +91,11 @@ Costs ~1000× more per call than tier 1, so the goal is a ratio of
 
 ### Squire Dashboard as a second writer
 
-The squire-dashboard (Next.js, see `docs/en/configuration.md`) is mostly
-a reader — it polls the JSONs under `SQUIRE_DATA_PATH`. From P3 onwards
-it can also write, but only outside `Squire`'s critical path:
+The dashboard (Next.js, see `docs/en/configuration.md`) lives **inside the
+repo** under `dashboard/` and runs as a separate container in the stack
+(`deploy/docker-compose.yml`). It is mostly a reader — it polls the JSONs under
+`SQUIRE_DATA_PATH`. From P3 onwards it can also write, but only outside
+`Squire`'s critical path:
 
 - `POST /api/alerts/ack` — flip `acknowledged` or remove an entry from
   `alerts.json`.

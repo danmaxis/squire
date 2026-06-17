@@ -13,6 +13,9 @@ node_modules/
 **/.env
 # deploy/ é infra de host (compose); não precisa estar na imagem.
 deploy/
+# dashboard/ é sub-app Next.js, buildado pelo seu próprio serviço/Dockerfile.
+# Excluir do contexto da imagem workspace (evita arrastar fonte + node_modules).
+dashboard/
 # Estado local de testes e planos não pertencem à imagem.
 *.bak
 .claude/

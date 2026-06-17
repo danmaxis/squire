@@ -98,6 +98,10 @@ squire/
 ├── progress.py            ← progress.txt generator
 ├── tasks_cli.py           ← `squire tasks` subcommands
 ├── tests/                 ← pytest
+├── dashboard/             ← Next.js app (read-write state UI) — sub-app
+├── deploy/                ← docker-compose stack (workspace + dashboard)
+├── docker/                ← s6 init/services for the workspace container
+├── Dockerfile.workspace   ← orchestrator image (SSH, toolchains)
 └── docs/                  ← documentation
     └── en/                ← English mirror (this language)
 ```

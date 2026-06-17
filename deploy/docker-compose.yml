@@ -51,7 +51,7 @@ services:
 
   dashboard:
     build:
-      context: ../../squire-dashboard   # repo do dashboard (imagem inalterada)
+      context: ../dashboard             # sub-app no monorepo (squire/dashboard)
       dockerfile: Dockerfile
     image: squire-dashboard
     container_name: squire-dashboard

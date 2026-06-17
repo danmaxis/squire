@@ -52,7 +52,7 @@ Pydantic: [`models.Project`](../models.py).
   "id": "squire-dashboard",
   "name": "Squire Dashboard",
   "description": "Painel Next.js mostrando estado dos projetos",
-  "repo_path": "/home/ai-debian/squire-dashboard",
+  "repo_path": "/home/ai-debian/projects/squire-dashboard",
   "stack": ["typescript", "nextjs"],
   "status": "implementing",
   "created_at": "2026-03-24T18:32:00Z",

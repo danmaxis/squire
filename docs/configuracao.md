@@ -140,7 +140,7 @@ Metadata do projeto. Schema: [`models.Project`](../models.py).
   "id": "squire-dashboard",
   "name": "Squire Dashboard",
   "description": "Painel Next.js mostrando o estado dos projetos do squire",
-  "repo_path": "/home/ai-debian/squire-dashboard",
+  "repo_path": "/home/ai-debian/projects/squire-dashboard",
   "stack": ["typescript", "nextjs", "tailwind"],
   "status": "implementing",
   "created_at": "2026-03-24T18:32:00Z",

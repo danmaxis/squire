@@ -89,9 +89,10 @@ locais para 1 do Claude Code**.
 
 ### Squire Dashboard como segundo escritor
 
-O squire-dashboard (Next.js, ler `docs/configuracao.md`) é normalmente um
-leitor — faz polling dos JSONs em `SQUIRE_DATA_PATH`. A partir do P3 ele
-também escreve, mas só fora do path crítico do `Squire`:
+O dashboard (Next.js, ler `docs/configuracao.md`) vive **dentro do repo** em
+`dashboard/` e roda como container separado na stack (`deploy/docker-compose.yml`).
+É normalmente um leitor — faz polling dos JSONs em `SQUIRE_DATA_PATH`. A partir
+do P3 ele também escreve, mas só fora do path crítico do `Squire`:
 
 - `POST /api/alerts/ack` — marca alerta como `acknowledged` ou remove
   do `alerts.json`.

@@ -221,7 +221,7 @@ $ squire reset squire-dashboard task-005
 
 1 task(s) resetada(s).
   ✓ checkpoint cursor resetado
-⚠ Limpando git state em /home/ai-debian/squire-dashboard
+⚠ Limpando git state em /home/ai-debian/projects/squire-dashboard
 ✓ git checkout -- . OK
 ```
 

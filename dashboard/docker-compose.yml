@@ -1,3 +1,7 @@
+# Standalone (apenas dashboard) — útil para dev isolado.
+# Deploy canônico é a stack em ../deploy/docker-compose.yml (workspace +
+# dashboard juntos, volume nomeado squire-state). Este arquivo bind-monta o
+# path legado /home/ai-debian/squire-state e é superseded pela stack.
 version: '3.8'
 
 services:

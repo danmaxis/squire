@@ -182,6 +182,11 @@ Mapeamento feature → doc (use este atalho antes de editar):
 | Viking pattern (`docs/viking/`)            | `docs/padrao-viking.md`           | `docs/en/viking-pattern.md`       |
 | Arquitetura / fluxo / componentes          | `docs/arquitetura.md`             | `docs/en/architecture.md`         |
 | Failure mode novo / fix conhecido          | `docs/troubleshooting.md`         | `docs/en/troubleshooting.md`      |
+| Dashboard (UI Next.js em `dashboard/`)     | `dashboard/CLAUDE.md` + `dashboard/README.md` (mesma fonte; sem mirror PT/EN) |
+
+> **Contrato JSON**: ao mudar um schema em `models.py`, atualize o tipo
+> espelhado em `dashboard/src/lib/types.ts` **no mesmo commit** (o drift é
+> coberto pelo teste `dashboard/src/lib/taskDefaults.test.ts`).
 
 Regras:
 
@@ -233,8 +238,13 @@ Regras:
 - Não commitar diretamente na `main` — usar branches + merge
 
 ### Estrutura de diretórios (dashboard)
+
+O dashboard vive **dentro deste repo**, em `dashboard/` (sub-app: tem seu
+próprio `package.json`/`tsconfig`/testes). Briefing próprio em
+[`dashboard/CLAUDE.md`](dashboard/CLAUDE.md).
+
 ```
-squire-dashboard/
+dashboard/
 ├── src/
 │   ├── app/
 │   │   ├── layout.tsx
@@ -300,26 +310,29 @@ python squire.py squire-dashboard --resume  # retoma de crash
 
 ### Dashboard (dev)
 ```bash
-cd /caminho/do/squire-dashboard
+cd /caminho/do/squire/dashboard
 npm install
 npm run dev
 ```
 
 ### Dashboard (produção)
 
-O container roda **na VM Ai-Debian** (não no Unraid: o estado em
-`/home/ai-debian/squire-state` fica no disco local da VM e o Unraid não
-o enxerga). Deploy via docker compose no próprio repo:
+Canônico: a **stack** em `deploy/docker-compose.yml` sobe workspace +
+dashboard juntos (ver "Stack em container" acima). O dashboard roda **na VM
+Ai-Debian** (não no Unraid: o estado fica no disco local da VM).
 
 ```bash
-cd /home/ai-debian/squire-dashboard
-docker compose up -d --build
+cd /home/ai-debian/squire
+docker compose -f deploy/docker-compose.yml up -d --build
 # Porta: 3101:3000 (3100 está ocupada pelo browserless na VM)
-# Volume: /home/ai-debian/squire-state:/data (rw — o dashboard escreve
+# Estado: volume nomeado squire-state em /data (rw — o dashboard escreve
 #         ack/dismiss de alertas via POST /api/alerts/ack)
 # user: 1000:1000 (arquivos de estado são 0600 ai-debian)
 # URL: http://<ip-da-vm>:3101
 ```
+
+O `dashboard/docker-compose.yml` (standalone, build context `.`) ainda serve
+para rodar só o dashboard em dev, mas é **superseded** pela stack.
 
 ### Stack em container (workspace + dashboard)
 
