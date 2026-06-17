@@ -1,0 +1,18 @@
+{
+  "commits": [
+    {
+      "sha": "abc1234def56789",
+      "message": "feat: add project scaffold with Next.js App Router",
+      "timestamp": "2026-03-29T09:30:00Z",
+      "diff_summary": "Scaffold Next.js 14 com TypeScript, Tailwind CSS e estrutura de diretórios",
+      "files_changed": ["src/app/layout.tsx", "src/app/page.tsx", "package.json", "tailwind.config.ts"]
+    },
+    {
+      "sha": "def5678abc12345",
+      "message": "feat: add TypeScript types mirroring squire Python models",
+      "timestamp": "2026-03-29T09:45:00Z",
+      "diff_summary": "Tipos TypeScript para Project, Task, HistoryEvent, Alert e GlobalStats",
+      "files_changed": ["src/lib/types.ts"]
+    }
+  ]
+}

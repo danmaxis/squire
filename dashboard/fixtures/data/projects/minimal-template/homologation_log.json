@@ -1,0 +1,17 @@
+{
+  "entries": [
+    {
+      "timestamp": "2026-06-11T12:00:00Z",
+      "task_id": "task-001",
+      "attempt": 1,
+      "approved": false,
+      "summary": "resumo",
+      "feedback": "feedback completo",
+      "fix_suggestion": "conserte X",
+      "suggestions": [],
+      "source": "session",
+      "cost_usd": 0.01,
+      "model": "claude-x"
+    }
+  ]
+}

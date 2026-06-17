@@ -1,0 +1,9 @@
+{
+  "daily_claude_code_calls": 12,
+  "daily_local_llm_calls": 47,
+  "date": "2026-03-29",
+  "cost_estimate_usd": 0.42,
+  "projects_touched_today": ["squire-dashboard"],
+  "tasks_completed_today": 3,
+  "approval_first_try_rate": 0.75
+}
